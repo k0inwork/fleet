@@ -29,35 +29,35 @@ class Orchestrator:
         self.is_running = False
 
     async def run(self, user_goal: str):
-        self.log(f"Starting orchestration for goal: {user_goal}")
+        try:
+            self.log(f"Starting orchestration for goal: {user_goal}")
 
-        # 1. Check & Setup Proxy
-        if self.config.get("proxy_url"):
-            setup_global_proxy(self.config["proxy_url"])
-            if not check_proxy(self.config["proxy_url"]):
-                self.log("Proxy check failed! Aborting.")
+            # 1. Check & Setup Proxy
+            if self.config.get("proxy_url"):
+                setup_global_proxy(self.config["proxy_url"])
+                if not check_proxy(self.config["proxy_url"]):
+                    self.log("Proxy check failed! Aborting.")
+                    return
+
+            # 2. Context Indexing
+            context = self.context_engine.get_context()
+            self.log(f"Context indexed: {len(context.file_tree)} files.")
+
+            # 3. Task Graph Generation
+            self.log("Generating Task Graph via Gemini...")
+            try:
+                task_graph = self.brain.generate_task_graph(user_goal, context)
+                self.scheduler = DAGScheduler(task_graph)
+                self.log(f"Task Graph generated with {len(task_graph.tasks)} tasks.")
+            except Exception as e:
+                self.log(f"Error generating Task Graph: {e}")
                 return
 
-        # 2. Context Indexing
-        context = self.context_engine.get_context()
-        self.log(f"Context indexed: {len(context.file_tree)} files.")
+            # 4. Hydra Start
+            await self.hydra.start()
 
-        # 3. Task Graph Generation
-        self.log("Generating Task Graph via Gemini...")
-        try:
-            task_graph = self.brain.generate_task_graph(user_goal, context)
-            self.scheduler = DAGScheduler(task_graph)
-            self.log(f"Task Graph generated with {len(task_graph.tasks)} tasks.")
-        except Exception as e:
-            self.log(f"Error generating Task Graph: {e}")
-            return
-
-        # 4. Hydra Start
-        await self.hydra.start()
-
-        # 5. Execution Loop
-        self.is_running = True
-        try:
+            # 5. Execution Loop
+            self.is_running = True
             while not self.scheduler.is_finished() and self.is_running:
                 # Dispatch tasks
                 ready_tasks = self.scheduler.get_ready_tasks()
@@ -69,8 +69,11 @@ class Orchestrator:
                 await self.verify_active_tasks()
 
                 await asyncio.sleep(10) # Poll interval
+        except Exception as e:
+            self.log(f"FATAL ERROR in orchestrator: {e}")
         finally:
             await self.hydra.stop()
+            self.is_running = False
             self.log("Orchestration finished.")
 
     async def dispatch_task(self, task_id: str):
@@ -177,20 +180,25 @@ class HydraApp(App):
                 pass
 
     def update_ui(self):
-        if hasattr(self, "orchestrator") and self.orchestrator.scheduler:
-            # Update Task List
-            task_container = self.query_one("#task-list")
-            status_map = self.orchestrator.scheduler.get_all_status()
+        if hasattr(self, "orchestrator"):
+            # Update Overall Status
+            status_text = "Running" if self.orchestrator.is_running else "Idle / Finished"
+            self.query_one(Header).walk_children() # Header doesn't easily let us set sub-text without more work
 
-            # Simple diff-based update to avoid flickering
-            existing_tasks = {child.id: child for child in task_container.walk_children() if child.id}
+            if self.orchestrator.scheduler:
+                # Update Task List
+                task_container = self.query_one("#task-list")
+                status_map = self.orchestrator.scheduler.get_all_status()
 
-            for task_id, status in status_map.items():
-                widget_id = f"task-{task_id}"
-                if widget_id in existing_tasks:
-                    existing_tasks[widget_id].update(f"{task_id}: {status}")
-                else:
-                    task_container.mount(Label(f"{task_id}: {status}", id=widget_id))
+                # Simple diff-based update to avoid flickering
+                existing_tasks = {child.id: child for child in task_container.walk_children() if child.id}
+
+                for task_id, status in status_map.items():
+                    widget_id = f"task-{task_id}"
+                    if widget_id in existing_tasks:
+                        existing_tasks[widget_id].update(f"{task_id}: {status}")
+                    else:
+                        task_container.mount(Label(f"{task_id}: {status}", id=widget_id))
 
             # Update Fleet Status
             for i, (sid, session) in enumerate(self.orchestrator.hydra.sessions.items(), 1):
