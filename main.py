@@ -52,13 +52,13 @@ class Orchestrator:
             self.log(f"Starting orchestration for goal: {user_goal}")
 
             # 2. Context Indexing
-            context = self.context_engine.get_context()
+            context = await asyncio.to_thread(self.context_engine.get_context)
             self.log(f"Context indexed: {len(context.file_tree)} files.")
 
             # 3. Task Graph Generation
             self.log("Generating Task Graph via Gemini...")
             try:
-                task_graph = self.brain.generate_task_graph(user_goal, context)
+                task_graph = await asyncio.to_thread(self.brain.generate_task_graph, user_goal, context)
                 self.scheduler = DAGScheduler(task_graph)
                 self.log(f"Task Graph generated with {len(task_graph.tasks)} tasks.")
             except Exception as e:
@@ -104,7 +104,7 @@ class Orchestrator:
     async def verify_active_tasks(self):
         for task_id, node in self.scheduler.nodes.items():
             if node.status == TaskStatus.RUNNING:
-                submitted, conflicted = self.verifier.verify_pr(node.task.branch)
+                submitted, conflicted = await asyncio.to_thread(self.verifier.verify_pr, node.task.branch)
                 if submitted:
                     if conflicted:
                         self.log(f"Task {task_id} has merge conflicts!")
@@ -286,7 +286,7 @@ class HydraApp(App):
         proxy_url = self.query_one("#proxy-url").value or os.getenv("PROXY_URL")
         if proxy_url:
             # Ensure SOCKS5 prefix for Playwright if missing
-            if not proxy_url.startswith("socks5://") and not proxy_url.startswith("http://"):
+            if "://" not in proxy_url:
                 proxy_url = f"socks5://{proxy_url}"
             setup_global_proxy(proxy_url)
 
@@ -304,12 +304,15 @@ class HydraApp(App):
                 self.notify("API Key is missing", severity="error")
                 return
             self.log_to_ui(f"Testing Gemini API Key with model: gemini-3-flash-preview...")
-            try:
+
+            def test_api():
                 import google.generativeai as genai
-                # Configure with proxy if available via env (setup_global_proxy does this)
                 genai.configure(api_key=key)
                 model = genai.GenerativeModel("gemini-3-flash-preview")
-                model.generate_content("test")
+                return model.generate_content("test")
+
+            try:
+                await asyncio.to_thread(test_api)
                 self.notify("API Key is valid!")
                 self.log_to_ui("Gemini API Key validation successful.")
             except Exception as e:
@@ -324,12 +327,14 @@ class HydraApp(App):
                 self.notify("GitHub Token is missing", severity="error")
                 return
             self.log_to_ui("Testing GitHub Token...")
-            try:
+
+            def test_gh():
                 from github import Github
-                # PyGithub respects HTTPS_PROXY env var
                 g = Github(token)
-                user = g.get_user()
-                login = user.login
+                return g.get_user().login
+
+            try:
+                login = await asyncio.to_thread(test_gh)
                 self.notify(f"GitHub Token is valid! (User: {login})")
                 self.log_to_ui(f"GitHub Token validation successful. Logged in as: {login}")
             except Exception as e:
@@ -345,14 +350,18 @@ class HydraApp(App):
                 self.notify("Repo name or GitHub token missing", severity="error")
                 return
             self.log_to_ui(f"Testing access to repository: {repo_name}...")
-            try:
+
+            def test_repo():
                 from github import Github
                 g = Github(token)
-                self.log_to_ui(f"Fetching repo details for {repo_name}...")
                 repo = g.get_repo(repo_name)
+                return repo.full_name, repo.id, repo.private
+
+            try:
+                full_name, rid, is_private = await asyncio.to_thread(test_repo)
                 self.notify(f"Successfully accessed repo: {repo_name}")
-                self.log_to_ui(f"Repository access confirmed: {repo_name} (ID: {repo.id})")
-                self.log_to_ui(f"Repo full name: {repo.full_name}, Visibility: {'Private' if repo.private else 'Public'}")
+                self.log_to_ui(f"Repository access confirmed: {repo_name} (ID: {rid})")
+                self.log_to_ui(f"Repo full name: {full_name}, Visibility: {'Private' if is_private else 'Public'}")
             except Exception as e:
                 self.notify(f"Could not access repo: {e}", severity="error")
                 self.log_to_ui(f"Repository access failed for {repo_name}: {e}")
@@ -368,7 +377,8 @@ class HydraApp(App):
                 self.notify("Proxy URL is missing", severity="warning")
                 return
             self.log_to_ui(f"Testing SOCKS5 proxy connection: {proxy_url}...")
-            if check_proxy(proxy_url):
+
+            if await asyncio.to_thread(check_proxy, proxy_url):
                 self.notify("Proxy connection successful!")
                 self.log_to_ui("SOCKS5 proxy validation successful.")
             else:
