@@ -16,7 +16,7 @@ if os.path.exists("config.json"):
                 host = host_port.split(":")[0]
                 port = int(host_port.split(":")[1])
                 socks.set_default_proxy(socks.SOCKS5, host, port)
-                socket.socket = socks.socksocket
+                socks.monkey_patch()
                 os.environ['http_proxy'] = p_url
                 os.environ['https_proxy'] = p_url
                 os.environ['all_proxy'] = p_url
@@ -33,15 +33,16 @@ from textual.screen import Screen
 from textual.widgets import Header, Footer, Static, Log, Label, Input, Button, TabbedContent, TabPane, TextArea
 from textual.reactive import reactive
 
-from brain import Brain, TaskGraph
 from context_engine import ContextEngine
-from hydra_controller import HydraController
 from scheduler import DAGScheduler, TaskStatus
-from github_verifier import GitHubVerifier
 from utils import setup_global_proxy, check_proxy
 
 class Orchestrator:
     def __init__(self, config: dict, log_callback):
+        from brain import Brain
+        from hydra_controller import HydraController
+        from github_verifier import GitHubVerifier
+
         self.config = config
         self.log = log_callback
         self.context_engine = ContextEngine(config.get("repo_path", "."))
@@ -335,7 +336,7 @@ class HydraApp(App):
 
             def test_api():
                 import google.generativeai as genai
-                genai.configure(api_key=key)
+                genai.configure(api_key=key, transport='rest')
                 model = genai.GenerativeModel("gemini-3-flash-preview")
                 return model.generate_content("test")
 
@@ -422,6 +423,7 @@ class HydraApp(App):
             asyncio.create_task(self.handle_start())
 
     async def perform_login(self):
+        from hydra_controller import HydraController
         proxy_url = self.query_one("#proxy-url").value or os.getenv("PROXY_URL")
         if proxy_url and "://" not in proxy_url:
             proxy_url = f"socks5://{proxy_url}"

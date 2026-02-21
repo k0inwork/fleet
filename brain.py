@@ -16,7 +16,8 @@ class TaskGraph(BaseModel):
 
 class Brain:
     def __init__(self, api_key: str, model_name: str = "gemini-3-flash-preview"):
-        genai.configure(api_key=api_key)
+        # Use REST transport to better respect environment proxies and avoid gRPC SOCKS5 issues
+        genai.configure(api_key=api_key, transport='rest')
         self.model_name = model_name
         self.model = genai.GenerativeModel(model_name)
 

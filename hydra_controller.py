@@ -35,6 +35,7 @@ class HydraController:
     def __init__(self, proxy_url: Optional[str] = None, state_path: str = "state.json"):
         self.proxy_url = proxy_url
         self.state_path = state_path
+        self.playwright = None
         self.browser = None
         self.context: Optional[BrowserContext] = None
         self.sessions: Dict[str, JulesSession] = {}
