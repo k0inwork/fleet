@@ -164,6 +164,17 @@ class HydraApp(App):
 
     async def on_mount(self):
         self.set_interval(2, self.update_ui)
+        # Load saved config
+        if os.path.exists("config.json"):
+            try:
+                with open("config.json", "r") as f:
+                    config = json.load(f)
+                    self.query_one("#api-key").value = config.get("gemini_api_key", "")
+                    self.query_one("#gh-token").value = config.get("github_token", "")
+                    self.query_one("#repo-name").value = config.get("repo_full_name", "")
+                    self.query_one("#proxy-url").value = config.get("proxy_url", "")
+            except:
+                pass
 
     def update_ui(self):
         if hasattr(self, "orchestrator") and self.orchestrator.scheduler:
@@ -215,6 +226,10 @@ class HydraApp(App):
             if not all([config["gemini_api_key"], config["github_token"], config["repo_full_name"], goal]):
                 self.log_to_ui("Missing required configuration or goal!")
                 return
+
+            # Save config for next run
+            with open("config.json", "w") as f:
+                json.dump(config, f)
 
             self.query_one(TabbedContent).active = "monitor-tab"
             self.orchestrator = Orchestrator(config, self.log_to_ui)
