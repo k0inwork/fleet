@@ -191,7 +191,8 @@ class HydraApp(App):
                                 yield Input(placeholder="Proxy URL (socks5://...)", id="proxy-url")
                                 yield Button("Test Proxy", variant="primary", id="test-proxy-btn")
 
-                            yield Label("Playwright Session State (Cookies/LocalStorage JSON)")
+                            yield Label("Playwright Session State (JSON)")
+                            yield Label("This stores your login cookies. It is filled automatically after 'Login to Google'.", variant="dim")
                             yield TextArea(id="session-state", classes="collapsed")
 
                             with Horizontal():
@@ -215,9 +216,9 @@ class HydraApp(App):
                                     yield Static("Slot 2: Idle", id="slot-2")
                                     yield Static("Slot 3: Idle", id="slot-3")
             with Vertical(id="global-logs"):
-                yield Label("Global Logs", classes="panel-title")
+                yield Label("Global Logs (also in hydra.log)", classes="panel-title")
                 yield Log(id="main-log")
-                yield Button("Clear Logs", id="clear-logs-btn")
+                yield Button("Clear UI Logs", id="clear-logs-btn")
         yield Footer()
 
     async def on_mount(self):
@@ -264,10 +265,15 @@ class HydraApp(App):
 
     def log_to_ui(self, message: str):
         timestamp = datetime.now().strftime("%H:%M:%S")
+        formatted_msg = f"[{timestamp}] {message}"
         try:
-            self.query_one("#main-log").write_line(f"[{timestamp}] {message}")
+            self.query_one("#main-log").write_line(formatted_msg)
         except:
             pass # App might not be fully mounted
+
+        # Also log to file
+        with open("hydra.log", "a") as f:
+            f.write(formatted_msg + "\n")
 
     def save_current_config(self):
         config = {
@@ -386,14 +392,37 @@ class HydraApp(App):
                 self.log_to_ui("SOCKS5 proxy validation failed. Check if the proxy server is running and the URL is correct.")
 
         elif event.button.id == "login-btn":
-            # Start hydra in non-headless mode for login
-            proxy_url = self.query_one("#proxy-url").value or os.getenv("PROXY_URL")
-            self.temp_hydra = HydraController(proxy_url)
-            await self.temp_hydra.start(headless=False)
-            asyncio.create_task(self.temp_hydra.login()) # This will wait for login
-            self.push_screen(LoginScreen())
+            self.save_current_config()
+            asyncio.create_task(self.perform_login())
 
         elif event.button.id == "start-btn":
+            self.save_current_config()
+            asyncio.create_task(self.handle_start())
+
+    async def perform_login(self):
+        proxy_url = self.query_one("#proxy-url").value or os.getenv("PROXY_URL")
+        if proxy_url and "://" not in proxy_url:
+            proxy_url = f"socks5://{proxy_url}"
+
+        self.log_to_ui("Initializing browser for manual Google Login...")
+        self.temp_hydra = HydraController(proxy_url)
+        try:
+            await self.temp_hydra.start(headless=False)
+            self.push_screen(LoginScreen())
+            await self.temp_hydra.login()
+            self.log_to_ui("Google Login detected successfully! Session state updated.")
+            self.notify("Google Login Successful!")
+            # Automatically update the session state TextArea with the new content
+            if os.path.exists("state.json"):
+                with open("state.json", "r") as f:
+                    self.query_one("#session-state").text = f.read()
+                self.save_current_config()
+        except Exception as e:
+            self.log_to_ui(f"Login failed or interrupted: {e}")
+            self.notify("Login Failed", severity="error")
+
+    async def handle_start(self):
+        if True: # Logic for start
             config = {
                 "gemini_api_key": self.query_one("#api-key").value or os.getenv("GEMINI_API_KEY"),
                 "github_token": self.query_one("#gh-token").value or os.getenv("GITHUB_TOKEN"),

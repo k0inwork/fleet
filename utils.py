@@ -2,6 +2,7 @@ import os
 import socket
 import requests
 import logging
+import socks
 
 logger = logging.getLogger("ProxyGuard")
 
@@ -27,21 +28,33 @@ def check_proxy(proxy_url: str) -> bool:
     return False
 
 def setup_global_proxy(proxy_url: str):
-    """Sets environment variables for proxy support."""
+    """Sets environment variables and global socket proxy for SOCKS5 support."""
     if proxy_url:
         os.environ['http_proxy'] = proxy_url
         os.environ['https_proxy'] = proxy_url
         os.environ['all_proxy'] = proxy_url
-        # For some libraries
         os.environ['HTTP_PROXY'] = proxy_url
         os.environ['HTTPS_PROXY'] = proxy_url
 
-        # For gRPC (Gemini API)
-        # Note: gRPC usually uses 'grpc_proxy' or 'https_proxy'
-        # For SOCKS5, gRPC support varies.
-        os.environ['grpc_proxy'] = proxy_url
+        if "socks5" in proxy_url:
+            os.environ['grpc_proxy'] = proxy_url.replace("socks5://", "socks5h://")
+        else:
+            os.environ['grpc_proxy'] = proxy_url
+
+        if "socks5" in proxy_url:
+            try:
+                # Parse host and port
+                host_port = proxy_url.split("://")[-1].split("@")[-1] # Handle auth if present
+                host = host_port.split(":")[0]
+                port = int(host_port.split(":")[1])
+
+                # Global monkey-patch for SOCKS5
+                socks.set_default_proxy(socks.SOCKS5, host, port)
+                socket.socket = socks.socksocket
+                logger.info(f"Global SOCKS5 proxy set to {host}:{port}")
+            except Exception as e:
+                logger.error(f"Failed to set global SOCKS5 proxy: {e}")
 
         # For git and other tools
-        # We need to handle 'socks5://' prefix
         proxy_host_port = proxy_url.split('://')[-1]
         os.environ['GIT_PROXY_COMMAND'] = f"nc -X 5 -x {proxy_host_port} %h %p"
