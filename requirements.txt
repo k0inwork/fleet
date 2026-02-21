@@ -1,0 +1,8 @@
+textual
+playwright
+google-generativeai
+PyGithub
+httpx[socks]
+pydantic
+PySocks
+python-dotenv
