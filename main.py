@@ -1,6 +1,7 @@
 import asyncio
 import os
 import json
+import traceback
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -23,6 +24,17 @@ class Orchestrator:
         self.log = log_callback
         self.context_engine = ContextEngine(config.get("repo_path", "."))
         self.brain = Brain(config["gemini_api_key"])
+
+        # If manual session state is provided, write it to state.json
+        if config.get("session_state"):
+            try:
+                state_data = json.loads(config["session_state"])
+                with open("state.json", "w") as f:
+                    json.dump(state_data, f)
+                self.log("Manual session state JSON loaded into state.json")
+            except Exception as e:
+                self.log(f"Failed to parse manual session state JSON: {e}")
+
         self.hydra = HydraController(config.get("proxy_url"))
         self.verifier = GitHubVerifier(config["github_token"], config["repo_full_name"], config.get("proxy_url"))
         self.scheduler = None
@@ -30,14 +42,14 @@ class Orchestrator:
 
     async def run(self, user_goal: str):
         try:
-            self.log(f"Starting orchestration for goal: {user_goal}")
-
-            # 1. Check & Setup Proxy
+            # 1. Check & Setup Proxy - must be FIRST
             if self.config.get("proxy_url"):
                 setup_global_proxy(self.config["proxy_url"])
                 if not check_proxy(self.config["proxy_url"]):
                     self.log("Proxy check failed! Aborting.")
                     return
+
+            self.log(f"Starting orchestration for goal: {user_goal}")
 
             # 2. Context Indexing
             context = self.context_engine.get_context()
@@ -175,6 +187,9 @@ class HydraApp(App):
                         yield Input(placeholder="Proxy URL (socks5://...)", id="proxy-url")
                         yield Button("Test Proxy", variant="primary", id="test-proxy-btn")
 
+                    yield Label("Session State (JSON Fallback)")
+                    yield TextArea(id="session-state", classes="collapsed")
+
                     yield Label("Goal & Execution (Moved to Monitor)")
                     yield Horizontal(
                         Button("Login to Google", id="login-btn")
@@ -213,6 +228,8 @@ class HydraApp(App):
                     self.query_one("#gh-token").value = config.get("github_token", "")
                     self.query_one("#repo-name").value = config.get("repo_full_name", "")
                     self.query_one("#proxy-url").value = config.get("proxy_url", "")
+                    if "session_state" in config:
+                        self.query_one("#session-state").text = config["session_state"]
             except:
                 pass
 
@@ -250,6 +267,10 @@ class HydraApp(App):
             pass # App might not be fully mounted
 
     async def on_button_pressed(self, event: Button.Pressed):
+        proxy_url = self.query_one("#proxy-url").value or os.getenv("PROXY_URL")
+        if proxy_url:
+            setup_global_proxy(proxy_url)
+
         if event.button.id == "toggle-goal-btn":
             container = self.query_one("#goal-container")
             if container.has_class("collapsed"):
@@ -265,6 +286,7 @@ class HydraApp(App):
             self.log_to_ui(f"Testing Gemini API Key with model: gemini-3-flash-preview...")
             try:
                 import google.generativeai as genai
+                # Configure with proxy if available via env (setup_global_proxy does this)
                 genai.configure(api_key=key)
                 model = genai.GenerativeModel("gemini-3-flash-preview")
                 model.generate_content("test")
@@ -273,6 +295,7 @@ class HydraApp(App):
             except Exception as e:
                 self.notify(f"API Key invalid: {e}", severity="error")
                 self.log_to_ui(f"Gemini API Key validation failed: {e}")
+                self.log_to_ui(traceback.format_exc())
 
         elif event.button.id == "test-gh-btn":
             token = self.query_one("#gh-token").value
@@ -282,13 +305,16 @@ class HydraApp(App):
             self.log_to_ui("Testing GitHub Token...")
             try:
                 from github import Github
+                # PyGithub respects HTTPS_PROXY env var
                 g = Github(token)
-                login = g.get_user().login
+                user = g.get_user()
+                login = user.login
                 self.notify(f"GitHub Token is valid! (User: {login})")
                 self.log_to_ui(f"GitHub Token validation successful. Logged in as: {login}")
             except Exception as e:
                 self.notify(f"GitHub Token invalid: {e}", severity="error")
                 self.log_to_ui(f"GitHub Token validation failed: {e}")
+                self.log_to_ui(traceback.format_exc())
 
         elif event.button.id == "test-repo-btn":
             repo_name = self.query_one("#repo-name").value
@@ -300,12 +326,15 @@ class HydraApp(App):
             try:
                 from github import Github
                 g = Github(token)
+                self.log_to_ui(f"Fetching repo details for {repo_name}...")
                 repo = g.get_repo(repo_name)
                 self.notify(f"Successfully accessed repo: {repo_name}")
                 self.log_to_ui(f"Repository access confirmed: {repo_name} (ID: {repo.id})")
+                self.log_to_ui(f"Repo full name: {repo.full_name}, Visibility: {'Private' if repo.private else 'Public'}")
             except Exception as e:
                 self.notify(f"Could not access repo: {e}", severity="error")
                 self.log_to_ui(f"Repository access failed for {repo_name}: {e}")
+                self.log_to_ui(traceback.format_exc())
 
         elif event.button.id == "test-proxy-btn":
             proxy_url = self.query_one("#proxy-url").value
@@ -334,6 +363,7 @@ class HydraApp(App):
                 "github_token": self.query_one("#gh-token").value or os.getenv("GITHUB_TOKEN"),
                 "repo_full_name": self.query_one("#repo-name").value or os.getenv("REPO_NAME"),
                 "proxy_url": self.query_one("#proxy-url").value or os.getenv("PROXY_URL"),
+                "session_state": self.query_one("#session-state").text,
                 "repo_path": "."
             }
             goal = self.query_one("#user-goal").text

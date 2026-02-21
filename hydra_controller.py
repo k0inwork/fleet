@@ -42,11 +42,16 @@ class HydraController:
 
     async def start(self, headless: bool = True):
         self.playwright = await async_playwright().start()
-        browser_args = []
+        browser_args = [
+            "--disable-blink-features=AutomationControlled",
+        ]
         if self.proxy_url:
             browser_args.append(f"--proxy-server={self.proxy_url}")
 
-        self.browser = await self.playwright.chromium.launch(headless=headless, args=browser_args)
+        self.browser = await self.playwright.chromium.launch(
+            headless=headless,
+            args=browser_args,
+        )
 
         # Load state if exists
         if os.path.exists(self.state_path):
@@ -57,6 +62,9 @@ class HydraController:
     async def login(self):
         """Open a browser for the user to log in manually."""
         page = await self.context.new_page()
+        # Add some basic stealth scripts
+        await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
         await page.goto("https://jules.google.com")
 
         # Wait for user to finish - we poll for the "New session" button
