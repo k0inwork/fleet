@@ -262,27 +262,33 @@ class HydraApp(App):
             if not key:
                 self.notify("API Key is missing", severity="error")
                 return
+            self.log_to_ui(f"Testing Gemini API Key with model: gemini-3-flash-preview...")
             try:
                 import google.generativeai as genai
                 genai.configure(api_key=key)
-                model = genai.GenerativeModel("gemini-1.5-flash")
+                model = genai.GenerativeModel("gemini-3-flash-preview")
                 model.generate_content("test")
                 self.notify("API Key is valid!")
+                self.log_to_ui("Gemini API Key validation successful.")
             except Exception as e:
                 self.notify(f"API Key invalid: {e}", severity="error")
+                self.log_to_ui(f"Gemini API Key validation failed: {e}")
 
         elif event.button.id == "test-gh-btn":
             token = self.query_one("#gh-token").value
             if not token:
                 self.notify("GitHub Token is missing", severity="error")
                 return
+            self.log_to_ui("Testing GitHub Token...")
             try:
                 from github import Github
                 g = Github(token)
-                g.get_user().login
-                self.notify("GitHub Token is valid!")
+                login = g.get_user().login
+                self.notify(f"GitHub Token is valid! (User: {login})")
+                self.log_to_ui(f"GitHub Token validation successful. Logged in as: {login}")
             except Exception as e:
                 self.notify(f"GitHub Token invalid: {e}", severity="error")
+                self.log_to_ui(f"GitHub Token validation failed: {e}")
 
         elif event.button.id == "test-repo-btn":
             repo_name = self.query_one("#repo-name").value
@@ -290,23 +296,29 @@ class HydraApp(App):
             if not repo_name or not token:
                 self.notify("Repo name or GitHub token missing", severity="error")
                 return
+            self.log_to_ui(f"Testing access to repository: {repo_name}...")
             try:
                 from github import Github
                 g = Github(token)
-                g.get_repo(repo_name)
+                repo = g.get_repo(repo_name)
                 self.notify(f"Successfully accessed repo: {repo_name}")
+                self.log_to_ui(f"Repository access confirmed: {repo_name} (ID: {repo.id})")
             except Exception as e:
                 self.notify(f"Could not access repo: {e}", severity="error")
+                self.log_to_ui(f"Repository access failed for {repo_name}: {e}")
 
         elif event.button.id == "test-proxy-btn":
             proxy_url = self.query_one("#proxy-url").value
             if not proxy_url:
                 self.notify("Proxy URL is missing", severity="warning")
                 return
+            self.log_to_ui(f"Testing SOCKS5 proxy connection: {proxy_url}...")
             if check_proxy(proxy_url):
                 self.notify("Proxy connection successful!")
+                self.log_to_ui("SOCKS5 proxy validation successful.")
             else:
                 self.notify("Proxy connection failed!", severity="error")
+                self.log_to_ui("SOCKS5 proxy validation failed. Check if the proxy server is running and the URL is correct.")
 
         elif event.button.id == "login-btn":
             # Start hydra in non-headless mode for login

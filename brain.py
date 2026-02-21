@@ -15,9 +15,7 @@ class TaskGraph(BaseModel):
     tasks: List[Task]
 
 class Brain:
-    def __init__(self, api_key: str, model_name: str = "gemini-1.5-flash"): # Defaulting to 1.5 flash for now as per genai support, but user mentioned 3.1
-        # Note: If gemini-3.1-pro-preview is available, we should use it.
-        # Based on my search, gemini-3.1-pro-preview might be the ID.
+    def __init__(self, api_key: str, model_name: str = "gemini-3-flash-preview"):
         genai.configure(api_key=api_key)
         self.model_name = model_name
         self.model = genai.GenerativeModel(model_name)
