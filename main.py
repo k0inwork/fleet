@@ -140,11 +140,21 @@ class HydraApp(App):
             with TabPane("Config", id="config-tab"):
                 with Vertical(id="config-form"):
                     yield Label("Configuration")
-                    yield Input(placeholder="Gemini API Key", id="api-key", password=True)
-                    yield Input(placeholder="GitHub Token", id="gh-token", password=True)
-                    yield Input(placeholder="Repo (owner/repo)", id="repo-name")
-                    yield Input(placeholder="Proxy URL (socks5://...)", id="proxy-url")
-                    yield Input(placeholder="User Goal", id="user-goal")
+                    with Horizontal():
+                        yield Input(placeholder="Gemini API Key", id="api-key", password=True)
+                        yield Button("Test Key", id="test-api-btn")
+                    with Horizontal():
+                        yield Input(placeholder="GitHub Token", id="gh-token", password=True)
+                        yield Button("Test Token", id="test-gh-btn")
+                    with Horizontal():
+                        yield Input(placeholder="Repo (owner/repo)", id="repo-name")
+                        yield Button("Test Repo", id="test-repo-btn")
+                    with Horizontal():
+                        yield Input(placeholder="Proxy URL (socks5://...)", id="proxy-url")
+                        yield Button("Test Proxy", id="test-proxy-btn")
+
+                    yield Label("Goal & Execution")
+                    yield Input(placeholder="Enter User Goal Here", id="user-goal")
                     yield Horizontal(
                         Button("Login to Google", id="login-btn"),
                         Button("Start Hydra", variant="success", id="start-btn")
@@ -213,7 +223,58 @@ class HydraApp(App):
             pass # App might not be fully mounted
 
     async def on_button_pressed(self, event: Button.Pressed):
-        if event.button.id == "login-btn":
+        if event.button.id == "test-api-btn":
+            key = self.query_one("#api-key").value
+            if not key:
+                self.notify("API Key is missing", severity="error")
+                return
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=key)
+                model = genai.GenerativeModel("gemini-1.5-flash")
+                model.generate_content("test")
+                self.notify("API Key is valid!")
+            except Exception as e:
+                self.notify(f"API Key invalid: {e}", severity="error")
+
+        elif event.button.id == "test-gh-btn":
+            token = self.query_one("#gh-token").value
+            if not token:
+                self.notify("GitHub Token is missing", severity="error")
+                return
+            try:
+                from github import Github
+                g = Github(token)
+                g.get_user().login
+                self.notify("GitHub Token is valid!")
+            except Exception as e:
+                self.notify(f"GitHub Token invalid: {e}", severity="error")
+
+        elif event.button.id == "test-repo-btn":
+            repo_name = self.query_one("#repo-name").value
+            token = self.query_one("#gh-token").value
+            if not repo_name or not token:
+                self.notify("Repo name or GitHub token missing", severity="error")
+                return
+            try:
+                from github import Github
+                g = Github(token)
+                g.get_repo(repo_name)
+                self.notify(f"Successfully accessed repo: {repo_name}")
+            except Exception as e:
+                self.notify(f"Could not access repo: {e}", severity="error")
+
+        elif event.button.id == "test-proxy-btn":
+            proxy_url = self.query_one("#proxy-url").value
+            if not proxy_url:
+                self.notify("Proxy URL is missing", severity="warning")
+                return
+            if check_proxy(proxy_url):
+                self.notify("Proxy connection successful!")
+            else:
+                self.notify("Proxy connection failed!", severity="error")
+
+        elif event.button.id == "login-btn":
             # Start hydra in non-headless mode for login
             proxy_url = self.query_one("#proxy-url").value or os.getenv("PROXY_URL")
             self.temp_hydra = HydraController(proxy_url)
