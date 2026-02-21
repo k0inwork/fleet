@@ -138,9 +138,11 @@ class HydraApp(App):
     CSS = """
     Screen { layout: vertical; }
     #main-container { height: 1fr; }
-    #left-panel { width: 30%; border: solid green; }
-    #center-panel { width: 40%; border: solid blue; }
-    #right-panel { width: 30%; border: solid white; }
+    #left-panel { width: 40%; border: solid green; }
+    #center-panel { width: 60%; border: solid blue; }
+    #screen-split { height: 1fr; }
+    #app-content { width: 65%; }
+    #global-logs { width: 35%; border: solid white; }
     .panel-title { text-align: center; background: $accent; color: white; margin: 1; }
     #main-log { height: 1fr; }
     #config-form { padding: 1; border: double red; height: auto; }
@@ -170,51 +172,52 @@ class HydraApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with TabbedContent():
-            with TabPane("Config", id="config-tab"):
-                with Vertical(id="config-form"):
-                    yield Label("Configuration")
-                    with Horizontal():
-                        yield Input(placeholder="Gemini API Key", id="api-key", password=True)
-                        yield Button("Test Key", variant="primary", id="test-api-btn")
-                    with Horizontal():
-                        yield Input(placeholder="GitHub Token", id="gh-token", password=True)
-                        yield Button("Test Token", variant="primary", id="test-gh-btn")
-                    with Horizontal():
-                        yield Input(placeholder="Repo (owner/repo)", id="repo-name")
-                        yield Button("Test Repo", variant="primary", id="test-repo-btn")
-                    with Horizontal():
-                        yield Input(placeholder="Proxy URL (socks5://...)", id="proxy-url")
-                        yield Button("Test Proxy", variant="primary", id="test-proxy-btn")
+        with Horizontal(id="screen-split"):
+            with Vertical(id="app-content"):
+                with TabbedContent():
+                    with TabPane("Config", id="config-tab"):
+                        with Vertical(id="config-form"):
+                            yield Label("Configuration")
+                            with Horizontal():
+                                yield Input(placeholder="Gemini API Key", id="api-key", password=True)
+                                yield Button("Test Key", variant="primary", id="test-api-btn")
+                            with Horizontal():
+                                yield Input(placeholder="GitHub Token", id="gh-token", password=True)
+                                yield Button("Test Token", variant="primary", id="test-gh-btn")
+                            with Horizontal():
+                                yield Input(placeholder="Repo (owner/repo)", id="repo-name")
+                                yield Button("Test Repo", variant="primary", id="test-repo-btn")
+                            with Horizontal():
+                                yield Input(placeholder="Proxy URL (socks5://...)", id="proxy-url")
+                                yield Button("Test Proxy", variant="primary", id="test-proxy-btn")
 
-                    yield Label("Session State (JSON Fallback)")
-                    yield TextArea(id="session-state", classes="collapsed")
+                            yield Label("Playwright Session State (Cookies/LocalStorage JSON)")
+                            yield TextArea(id="session-state", classes="collapsed")
 
-                    yield Label("Goal & Execution (Moved to Monitor)")
-                    yield Horizontal(
-                        Button("Login to Google", id="login-btn")
-                    )
-            with TabPane("Monitor", id="monitor-tab"):
-                with Vertical(id="goal-header"):
-                    with Vertical(id="goal-container", classes="collapsed"):
-                        with Horizontal():
-                            yield Label("SYSTEM GOAL")
-                            yield Button("Toggle Size", id="toggle-goal-btn")
-                        yield TextArea(id="user-goal")
-                        yield Button("START HYDRA FLEET", variant="success", id="start-btn")
-                with Horizontal(id="main-container"):
-                    with Vertical(id="left-panel"):
-                        yield Label("Tasks", classes="panel-title")
-                        yield Container(id="task-list")
-                    with Vertical(id="center-panel"):
-                        yield Label("Hydra Fleet", classes="panel-title")
-                        with Vertical(id="fleet-status"):
-                            yield Static("Slot 1: Idle", id="slot-1")
-                            yield Static("Slot 2: Idle", id="slot-2")
-                            yield Static("Slot 3: Idle", id="slot-3")
-                    with Vertical(id="right-panel"):
-                        yield Label("Logs", classes="panel-title")
-                        yield Log(id="main-log")
+                            with Horizontal():
+                                yield Button("Login to Google", id="login-btn")
+                    with TabPane("Monitor", id="monitor-tab"):
+                        with Vertical(id="goal-header"):
+                            with Vertical(id="goal-container", classes="collapsed"):
+                                with Horizontal():
+                                    yield Label("SYSTEM GOAL")
+                                    yield Button("Toggle Size", id="toggle-goal-btn")
+                                yield TextArea(id="user-goal")
+                                yield Button("START HYDRA FLEET", variant="success", id="start-btn")
+                        with Horizontal(id="main-container"):
+                            with Vertical(id="left-panel"):
+                                yield Label("Tasks", classes="panel-title")
+                                yield Container(id="task-list")
+                            with Vertical(id="center-panel"):
+                                yield Label("Hydra Fleet", classes="panel-title")
+                                with Vertical(id="fleet-status"):
+                                    yield Static("Slot 1: Idle", id="slot-1")
+                                    yield Static("Slot 2: Idle", id="slot-2")
+                                    yield Static("Slot 3: Idle", id="slot-3")
+            with Vertical(id="global-logs"):
+                yield Label("Global Logs", classes="panel-title")
+                yield Log(id="main-log")
+                yield Button("Clear Logs", id="clear-logs-btn")
         yield Footer()
 
     async def on_mount(self):
@@ -266,9 +269,25 @@ class HydraApp(App):
         except:
             pass # App might not be fully mounted
 
+    def save_current_config(self):
+        config = {
+            "gemini_api_key": self.query_one("#api-key").value,
+            "github_token": self.query_one("#gh-token").value,
+            "repo_full_name": self.query_one("#repo-name").value,
+            "proxy_url": self.query_one("#proxy-url").value,
+            "session_state": self.query_one("#session-state").text,
+            "repo_path": "."
+        }
+        with open("config.json", "w") as f:
+            json.dump(config, f)
+        self.log_to_ui("Configuration saved to config.json")
+
     async def on_button_pressed(self, event: Button.Pressed):
         proxy_url = self.query_one("#proxy-url").value or os.getenv("PROXY_URL")
         if proxy_url:
+            # Ensure SOCKS5 prefix for Playwright if missing
+            if not proxy_url.startswith("socks5://") and not proxy_url.startswith("http://"):
+                proxy_url = f"socks5://{proxy_url}"
             setup_global_proxy(proxy_url)
 
         if event.button.id == "toggle-goal-btn":
@@ -279,6 +298,7 @@ class HydraApp(App):
                 container.add_class("collapsed")
 
         elif event.button.id == "test-api-btn":
+            self.save_current_config()
             key = self.query_one("#api-key").value
             if not key:
                 self.notify("API Key is missing", severity="error")
@@ -298,6 +318,7 @@ class HydraApp(App):
                 self.log_to_ui(traceback.format_exc())
 
         elif event.button.id == "test-gh-btn":
+            self.save_current_config()
             token = self.query_one("#gh-token").value
             if not token:
                 self.notify("GitHub Token is missing", severity="error")
@@ -317,6 +338,7 @@ class HydraApp(App):
                 self.log_to_ui(traceback.format_exc())
 
         elif event.button.id == "test-repo-btn":
+            self.save_current_config()
             repo_name = self.query_one("#repo-name").value
             token = self.query_one("#gh-token").value
             if not repo_name or not token:
@@ -336,7 +358,11 @@ class HydraApp(App):
                 self.log_to_ui(f"Repository access failed for {repo_name}: {e}")
                 self.log_to_ui(traceback.format_exc())
 
+        elif event.button.id == "clear-logs-btn":
+            self.query_one("#main-log").clear()
+
         elif event.button.id == "test-proxy-btn":
+            self.save_current_config()
             proxy_url = self.query_one("#proxy-url").value
             if not proxy_url:
                 self.notify("Proxy URL is missing", severity="warning")

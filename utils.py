@@ -35,5 +35,13 @@ def setup_global_proxy(proxy_url: str):
         # For some libraries
         os.environ['HTTP_PROXY'] = proxy_url
         os.environ['HTTPS_PROXY'] = proxy_url
+
+        # For gRPC (Gemini API)
+        # Note: gRPC usually uses 'grpc_proxy' or 'https_proxy'
+        # For SOCKS5, gRPC support varies.
+        os.environ['grpc_proxy'] = proxy_url
+
         # For git and other tools
-        os.environ['GIT_PROXY_COMMAND'] = f"nc -X 5 -x {proxy_url.split('://')[-1]} %h %p"
+        # We need to handle 'socks5://' prefix
+        proxy_host_port = proxy_url.split('://')[-1]
+        os.environ['GIT_PROXY_COMMAND'] = f"nc -X 5 -x {proxy_host_port} %h %p"
