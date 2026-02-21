@@ -81,12 +81,16 @@ class HydraController:
         await page.close()
 
     async def stop(self):
-        if self.context:
-            await self.context.storage_state(path=self.state_path)
-            await self.context.close()
-        if self.browser:
-            await self.browser.close()
-        await self.playwright.stop()
+        try:
+            if hasattr(self, "context") and self.context:
+                await self.context.storage_state(path=self.state_path)
+                await self.context.close()
+            if hasattr(self, "browser") and self.browser:
+                await self.browser.close()
+            if hasattr(self, "playwright") and self.playwright:
+                await self.playwright.stop()
+        except Exception as e:
+            logger.error(f"Error stopping HydraController: {e}")
 
     async def create_session(self, repo_full_name: str, branch: str) -> Optional[str]:
         """Creates a new session for a specific repo and branch."""

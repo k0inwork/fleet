@@ -36,10 +36,7 @@ def setup_global_proxy(proxy_url: str):
         os.environ['HTTP_PROXY'] = proxy_url
         os.environ['HTTPS_PROXY'] = proxy_url
 
-        if "socks5" in proxy_url:
-            os.environ['grpc_proxy'] = proxy_url.replace("socks5://", "socks5h://")
-        else:
-            os.environ['grpc_proxy'] = proxy_url
+        os.environ['grpc_proxy'] = proxy_url
 
         if "socks5" in proxy_url:
             try:

@@ -2,6 +2,28 @@ import asyncio
 import os
 import json
 import traceback
+import socket
+
+# Try to setup proxy as early as possible before any other imports
+if os.path.exists("config.json"):
+    try:
+        with open("config.json", "r") as f:
+            cfg = json.load(f)
+            p_url = cfg.get("proxy_url")
+            if p_url and "socks5" in p_url:
+                import socks
+                host_port = p_url.split("://")[-1].split("@")[-1]
+                host = host_port.split(":")[0]
+                port = int(host_port.split(":")[1])
+                socks.set_default_proxy(socks.SOCKS5, host, port)
+                socket.socket = socks.socksocket
+                os.environ['http_proxy'] = p_url
+                os.environ['https_proxy'] = p_url
+                os.environ['all_proxy'] = p_url
+                os.environ['grpc_proxy'] = p_url
+    except:
+        pass
+
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -420,9 +442,11 @@ class HydraApp(App):
         except Exception as e:
             self.log_to_ui(f"Login failed or interrupted: {e}")
             self.notify("Login Failed", severity="error")
+            if hasattr(self, "temp_hydra"):
+                await self.temp_hydra.stop()
 
     async def handle_start(self):
-        if True: # Logic for start
+        try:
             config = {
                 "gemini_api_key": self.query_one("#api-key").value or os.getenv("GEMINI_API_KEY"),
                 "github_token": self.query_one("#gh-token").value or os.getenv("GITHUB_TOKEN"),
@@ -444,6 +468,9 @@ class HydraApp(App):
             self.query_one(TabbedContent).active = "monitor-tab"
             self.orchestrator = Orchestrator(config, self.log_to_ui)
             asyncio.create_task(self.orchestrator.run(goal))
+        except Exception as e:
+            self.log_to_ui(f"Failed to handle start: {e}")
+            self.log_to_ui(traceback.format_exc())
 
 if __name__ == "__main__":
     app = HydraApp()
