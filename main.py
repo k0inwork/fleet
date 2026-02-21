@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Log, Label, Input, Button, TabbedContent, TabPane
+from textual.widgets import Header, Footer, Static, Log, Label, Input, Button, TabbedContent, TabPane, TextArea
 from textual.reactive import reactive
 
 from brain import Brain, TaskGraph
@@ -131,7 +131,29 @@ class HydraApp(App):
     #right-panel { width: 30%; border: solid white; }
     .panel-title { text-align: center; background: $accent; color: white; margin: 1; }
     #main-log { height: 1fr; }
-    #config-form { padding: 2; border: double red; }
+    #config-form { padding: 1; border: double red; height: auto; }
+    #config-form Horizontal {
+        height: 3;
+        margin-bottom: 1;
+    }
+    #config-form Input {
+        width: 1fr;
+    }
+    #config-form Button {
+        width: 15;
+        min-width: 15;
+    }
+    #goal-container {
+        border: solid yellow;
+        height: auto;
+        padding: 0 1;
+    }
+    .collapsed {
+        height: 4;
+    }
+    #goal-header {
+        height: auto;
+    }
     """
 
     def compose(self) -> ComposeResult:
@@ -142,24 +164,29 @@ class HydraApp(App):
                     yield Label("Configuration")
                     with Horizontal():
                         yield Input(placeholder="Gemini API Key", id="api-key", password=True)
-                        yield Button("Test Key", id="test-api-btn")
+                        yield Button("Test Key", variant="primary", id="test-api-btn")
                     with Horizontal():
                         yield Input(placeholder="GitHub Token", id="gh-token", password=True)
-                        yield Button("Test Token", id="test-gh-btn")
+                        yield Button("Test Token", variant="primary", id="test-gh-btn")
                     with Horizontal():
                         yield Input(placeholder="Repo (owner/repo)", id="repo-name")
-                        yield Button("Test Repo", id="test-repo-btn")
+                        yield Button("Test Repo", variant="primary", id="test-repo-btn")
                     with Horizontal():
                         yield Input(placeholder="Proxy URL (socks5://...)", id="proxy-url")
-                        yield Button("Test Proxy", id="test-proxy-btn")
+                        yield Button("Test Proxy", variant="primary", id="test-proxy-btn")
 
-                    yield Label("Goal & Execution")
-                    yield Input(placeholder="Enter User Goal Here", id="user-goal")
+                    yield Label("Goal & Execution (Moved to Monitor)")
                     yield Horizontal(
-                        Button("Login to Google", id="login-btn"),
-                        Button("Start Hydra", variant="success", id="start-btn")
+                        Button("Login to Google", id="login-btn")
                     )
             with TabPane("Monitor", id="monitor-tab"):
+                with Vertical(id="goal-header"):
+                    with Vertical(id="goal-container", classes="collapsed"):
+                        with Horizontal():
+                            yield Label("SYSTEM GOAL")
+                            yield Button("Toggle Size", id="toggle-goal-btn")
+                        yield TextArea(id="user-goal")
+                        yield Button("START HYDRA FLEET", variant="success", id="start-btn")
                 with Horizontal(id="main-container"):
                     with Vertical(id="left-panel"):
                         yield Label("Tasks", classes="panel-title")
@@ -223,7 +250,14 @@ class HydraApp(App):
             pass # App might not be fully mounted
 
     async def on_button_pressed(self, event: Button.Pressed):
-        if event.button.id == "test-api-btn":
+        if event.button.id == "toggle-goal-btn":
+            container = self.query_one("#goal-container")
+            if container.has_class("collapsed"):
+                container.remove_class("collapsed")
+            else:
+                container.add_class("collapsed")
+
+        elif event.button.id == "test-api-btn":
             key = self.query_one("#api-key").value
             if not key:
                 self.notify("API Key is missing", severity="error")
@@ -290,7 +324,7 @@ class HydraApp(App):
                 "proxy_url": self.query_one("#proxy-url").value or os.getenv("PROXY_URL"),
                 "repo_path": "."
             }
-            goal = self.query_one("#user-goal").value
+            goal = self.query_one("#user-goal").text
 
             if not all([config["gemini_api_key"], config["github_token"], config["repo_full_name"], goal]):
                 self.log_to_ui("Missing required configuration or goal!")
