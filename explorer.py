@@ -10,9 +10,10 @@ from hydra_controller import HydraController
 logger = logging.getLogger("JulesExplorer")
 
 class JulesExplorer:
-    def __init__(self, proxy_url: Optional[str] = None, state_path: str = "state.json"):
+    def __init__(self, proxy_url: Optional[str] = None, state_path: str = "state.json", log_callback=None):
         self.proxy_url = proxy_url
         self.state_path = state_path
+        self.log = log_callback or logger.info
         self.controller = HydraController(proxy_url, state_path)
         self.ui_map = {}
 
@@ -21,7 +22,7 @@ class JulesExplorer:
         page = await self.controller.context.new_page()
 
         try:
-            logger.info("Navigating to jules.google.com for exploration...")
+            self.log("Navigating to jules.google.com for exploration...")
             await page.goto("https://jules.google.com", wait_until="domcontentloaded", timeout=60000)
 
             # 1. Map Dashboard
@@ -58,7 +59,7 @@ class JulesExplorer:
             try:
                 settings_btn = page.locator(selector).first
                 if await settings_btn.is_visible(timeout=2000):
-                    logger.info(f"Found settings via {selector}, clicking...")
+                    self.log(f"Found settings via {selector}, clicking...")
                     await settings_btn.click()
                     await asyncio.sleep(2)
                     await self._map_current_page(page, "Settings")
@@ -68,26 +69,26 @@ class JulesExplorer:
                 continue
 
     async def active_explore(self, page: Page, repo_full_name: str):
-        logger.info(f"Starting active exploration for repo: {repo_full_name}")
+        self.log(f"Starting active exploration for repo: {repo_full_name}")
 
         try:
             # 1. Create Session
-            logger.info("Creating session for active test...")
+            self.log("Creating session for active test...")
             session_id = await self.controller.create_session(repo_full_name, "explorer-test-branch")
             if not session_id:
-                logger.error("Failed to create session for active exploration")
+                self.log("Failed to create session for active exploration")
                 return
 
             await self._map_current_page(page, "Session View")
 
             # 2. Send command and observe activity
-            logger.info("Sending simple command to observe activity...")
+            self.log("Sending simple command to observe activity...")
             await self.controller.send_message(session_id, "Please create a dummy test file named 'explorer_test.txt' with content 'hello world'. Then wait.")
             await asyncio.sleep(5)
             await self._map_current_page(page, "Session Activity Observed")
 
             # 3. Discover management buttons (Pause, Stop, etc.)
-            logger.info("Discovering session management buttons...")
+            self.log("Discovering session management buttons...")
             management_selectors = [
                 "button:has-text('Pause')", "button:has-text('Stop')",
                 "button:has-text('Restart')", "button:has-text('Resume')",
@@ -98,29 +99,29 @@ class JulesExplorer:
                 try:
                     el = page.locator(selector).first
                     if await el.is_visible(timeout=1000):
-                        logger.info(f"Detected management element: {selector}")
+                        self.log(f"Detected management element: {selector}")
                 except:
                     continue
 
             # 4. Mind Wipe test
-            logger.info("Performing mind wipe discovery...")
+            self.log("Performing mind wipe discovery...")
             await self.controller.mind_wipe(session_id)
             await asyncio.sleep(3)
             await self._map_current_page(page, "Post Mind Wipe")
 
             # 5. Archive and Cleanup
-            logger.info("Finishing active exploration and archiving session...")
+            self.log("Finishing active exploration and archiving session...")
             # Logic for archiving is often in a menu
             try:
                 await page.locator("button:has-text('Session options')").click()
                 await asyncio.sleep(1)
                 await page.locator("text='Archive'").click()
-                logger.info("Session archived.")
+                self.log("Session archived.")
             except:
-                logger.warning("Could not find Archive button via default path.")
+                self.log("Could not find Archive button via default path.")
 
         except Exception as e:
-            logger.error(f"Active exploration failed: {e}")
+            self.log(f"Active exploration failed: {e}")
 
     def _generate_refined_selectors(self):
         """Analyzes the ui_map and generates refined_selectors.json."""
@@ -175,7 +176,7 @@ class JulesExplorer:
         return tag
 
     async def _map_current_page(self, page: Page, page_name: str):
-        logger.info(f"Mapping page: {page_name}")
+        self.log(f"Mapping page: {page_name}")
         elements = []
 
         # Scrape interactive elements
@@ -205,9 +206,9 @@ class JulesExplorer:
         }
 
         # Take a screenshot
-        screenshot_path = f"explore_{page_name.lower()}.png"
+        screenshot_path = f"explore_{page_name.replace(' ', '_').lower()}.png"
         await page.screenshot(path=screenshot_path)
-        logger.info(f"Screenshot for {page_name} saved to {screenshot_path}")
+        self.log(f"Screenshot for {page_name} saved to {screenshot_path}")
 
 if __name__ == "__main__":
     # Configure logging to console for standalone run

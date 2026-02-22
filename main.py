@@ -220,6 +220,10 @@ class HydraApp(App):
     #goal-header {
         height: auto;
     }
+    #explore-container { height: 1fr; }
+    #ui-map-tree { width: 40%; border: solid green; }
+    #explore-log-container { width: 60%; border: solid blue; }
+    #explore-log { height: 1fr; }
     """
 
     def compose(self) -> ComposeResult:
@@ -249,7 +253,16 @@ class HydraApp(App):
 
                             with Horizontal():
                                 yield Button("Login to Google", id="login-btn")
-                                yield Button("Explore Jules UI", id="explore-btn", variant="primary")
+                    with TabPane("Explore", id="explore-tab"):
+                        with Vertical():
+                            with Horizontal():
+                                yield Button("Start Automated Discovery", id="explore-btn", variant="success")
+                                yield Label("Discovered UI Map", classes="panel-title")
+                            with Horizontal(id="explore-container"):
+                                yield Tree("Jules UI Map", id="ui-map-tree")
+                                with Vertical(id="explore-log-container"):
+                                    yield Label("Exploration Logs")
+                                    yield Log(id="explore-log")
                     with TabPane("Monitor", id="monitor-tab"):
                         with Vertical(id="goal-header"):
                             with Vertical(id="goal-container", classes="collapsed"):
@@ -290,6 +303,9 @@ class HydraApp(App):
                         self.query_one("#session-state").text = config["session_state"]
             except:
                 pass
+
+        # Load existing UI Map
+        self.load_ui_map_into_tree()
 
     def update_ui(self):
         if hasattr(self, "orchestrator"):
@@ -542,15 +558,54 @@ class HydraApp(App):
         if proxy_url and "://" not in proxy_url:
             proxy_url = f"socks5://{proxy_url}"
 
-        self.log_to_ui(f"Starting automated Jules UI exploration (Target Repo: {repo_full_name})...")
-        explorer = JulesExplorer(proxy_url)
+        self.query_one(TabbedContent).active = "explore-tab"
+        log_widget = self.query_one("#explore-log")
+        log_widget.clear()
+
+        def log_to_explore(msg):
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            try:
+                log_widget.write_line(f"[{timestamp}] {msg}")
+            except: pass
+            self.log_to_ui(msg)
+
+        log_to_explore(f"Starting automated Jules UI exploration (Target Repo: {repo_full_name})...")
+        explorer = JulesExplorer(proxy_url, log_callback=log_to_explore)
         try:
             await explorer.explore(repo_full_name=repo_full_name)
-            self.log_to_ui("Exploration complete! Results saved to jules_ui_map.json")
+            log_to_explore("Exploration complete! Results saved to jules_ui_map.json")
             self.notify("Jules UI Exploration Complete!")
+            self.load_ui_map_into_tree()
         except Exception as e:
-            self.log_to_ui(f"Exploration failed: {e}")
+            log_to_explore(f"Exploration failed: {e}")
             self.notify("Exploration Failed", severity="error")
+
+    def load_ui_map_into_tree(self):
+        try:
+            tree = self.query_one("#ui-map-tree")
+        except: return
+
+        tree.reset("Jules UI Map")
+        if os.path.exists("jules_ui_map.json"):
+            try:
+                with open("jules_ui_map.json", "r") as f:
+                    ui_map = json.load(f)
+                    for page_name, data in ui_map.items():
+                        page_node = tree.root.add(f"📄 {page_name}")
+                        page_node.add(f"🔗 URL: {data['url']}")
+                        page_node.add(f"🏷️ Title: {data['title']}")
+                        elements_node = page_node.add(f"🏗️ Elements ({len(data['elements'])})")
+                        for el in data["elements"]:
+                            label = f"{el['tag']}: {el['text'][:30]}"
+                            if el['placeholder']: label += f" (Ph: {el['placeholder']})"
+                            el_node = elements_node.add(label)
+                            if el['id']: el_node.add(f"ID: {el['id']}")
+                            if el['aria_label']: el_node.add(f"Aria: {el['aria_label']}")
+                            if el['classes']: el_node.add(f"Classes: {el['classes']}")
+                        page_node.expand()
+                tree.root.expand()
+            except Exception as e:
+                self.log_to_ui(f"Failed to load UI map into tree: {e}")
 
     async def perform_login(self):
         from hydra_controller import HydraController
