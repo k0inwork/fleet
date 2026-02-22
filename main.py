@@ -249,6 +249,7 @@ class HydraApp(App):
 
                             with Horizontal():
                                 yield Button("Login to Google", id="login-btn")
+                                yield Button("Explore Jules UI", id="explore-btn", variant="primary")
                     with TabPane("Monitor", id="monitor-tab"):
                         with Vertical(id="goal-header"):
                             with Vertical(id="goal-container", classes="collapsed"):
@@ -525,9 +526,29 @@ class HydraApp(App):
             self.save_current_config()
             asyncio.create_task(self.perform_login())
 
+        elif event.button.id == "explore-btn":
+            self.save_current_config()
+            asyncio.create_task(self.perform_exploration())
+
         elif event.button.id == "start-btn":
             self.save_current_config()
             asyncio.create_task(self.handle_start())
+
+    async def perform_exploration(self):
+        from explorer import JulesExplorer
+        proxy_url = self.query_one("#proxy-url").value or os.getenv("PROXY_URL")
+        if proxy_url and "://" not in proxy_url:
+            proxy_url = f"socks5://{proxy_url}"
+
+        self.log_to_ui("Starting automated Jules UI exploration...")
+        explorer = JulesExplorer(proxy_url)
+        try:
+            await explorer.explore()
+            self.log_to_ui("Exploration complete! Results saved to jules_ui_map.json")
+            self.notify("Jules UI Exploration Complete!")
+        except Exception as e:
+            self.log_to_ui(f"Exploration failed: {e}")
+            self.notify("Exploration Failed", severity="error")
 
     async def perform_login(self):
         from hydra_controller import HydraController
