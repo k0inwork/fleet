@@ -4,6 +4,16 @@ import json
 import traceback
 import socket
 
+import logging
+
+# Configure logging to file to avoid messing up TUI
+logging.basicConfig(
+    level=logging.INFO,
+    filename='hydra.log',
+    filemode='a',
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
 # Try to setup proxy as early as possible before any other imports
 if os.path.exists("config.json"):
     try:
@@ -16,7 +26,7 @@ if os.path.exists("config.json"):
                 host = host_port.split(":")[0]
                 port = int(host_port.split(":")[1])
                 socks.set_default_proxy(socks.SOCKS5, host, port)
-                socks.monkey_patch()
+                socket.socket = socks.socksocket
                 os.environ['http_proxy'] = p_url
                 os.environ['https_proxy'] = p_url
                 os.environ['all_proxy'] = p_url

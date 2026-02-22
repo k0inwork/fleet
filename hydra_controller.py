@@ -6,7 +6,6 @@ from playwright.async_api import async_playwright, Page, BrowserContext
 from typing import Optional, List, Dict
 from pydantic import BaseModel
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("HydraController")
 
 # UI Selectors - Adjust these as the Jules UI evolves
@@ -56,10 +55,16 @@ class HydraController:
         )
 
         # Load state if exists
+        context_args = {
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "viewport": {"width": 1280, "height": 720},
+            "device_scale_factor": 1,
+        }
+
         if os.path.exists(self.state_path):
-            self.context = await self.browser.new_context(storage_state=self.state_path)
+            self.context = await self.browser.new_context(storage_state=self.state_path, **context_args)
         else:
-            self.context = await self.browser.new_context()
+            self.context = await self.browser.new_context(**context_args)
 
     async def login(self):
         """Open a browser for the user to log in manually."""
@@ -100,7 +105,7 @@ class HydraController:
             page = await self.context.new_page()
             try:
                 logger.info(f"Navigating to jules.google.com for repo {repo_full_name}")
-                await page.goto("https://jules.google.com", wait_until="networkidle", timeout=60000)
+                await page.goto("https://jules.google.com", wait_until="domcontentloaded", timeout=60000)
 
                 # Check if we are at the login page
                 if "accounts.google.com" in page.url:
@@ -115,6 +120,7 @@ class HydraController:
                     logger.error(f"Timeout waiting for 'New session' button. URL: {page.url}")
                     raise te
 
+                await asyncio.sleep(1) # Human-like pause
                 await page.locator(SELECTORS["new_session_btn"]).first.click()
 
                 # Search for the repo
