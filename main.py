@@ -345,9 +345,8 @@ class HydraApp(App):
             pass
 
     def build_initial_tree(self, tree: Tree):
-        # Ensure we have a root node
-        tree.clear()
-        tree.set_root("Task Graph")
+        # Reset the tree to a new root
+        tree.reset("Task Graph")
 
         nodes = self.orchestrator.scheduler.nodes
         # Find roots (tasks that no one else depends on, OR tasks with no dependencies)
@@ -555,7 +554,8 @@ class HydraApp(App):
 
             # Reset the tree
             tree = self.query_one("#dag-tree")
-            tree.clear()
+            tree.reset("Task Graph")
+
             config = {
                 "gemini_api_key": self.query_one("#api-key").value or os.getenv("GEMINI_API_KEY"),
                 "github_token": self.query_one("#gh-token").value or os.getenv("GITHUB_TOKEN"),
