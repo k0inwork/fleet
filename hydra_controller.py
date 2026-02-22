@@ -149,7 +149,7 @@ class HydraController:
                 logger.info("Looking for 'New session' button")
                 try:
                     btn = page.locator(SELECTORS["new_session_btn"]).first
-                    await btn.wait_for(state="visible", timeout=30000)
+                    await btn.wait_for(state="visible", timeout=60000)
                     logger.info("'New session' button is visible")
                 except Exception as te:
                     await self._log_page_state(page, "Error Waiting For New Session Btn")
@@ -163,7 +163,7 @@ class HydraController:
                 # Search for the repo
                 logger.info(f"Searching for repository: {repo_full_name}")
                 search_input = page.locator(SELECTORS["repo_search_input"]).first
-                await search_input.wait_for(state="visible", timeout=20000)
+                await search_input.wait_for(state="visible", timeout=60000)
                 await search_input.fill(repo_full_name)
                 logger.info(f"Filled search input with {repo_full_name}")
 
@@ -174,7 +174,7 @@ class HydraController:
 
                 repo_item = page.get_by_text(repo_full_name).first
                 try:
-                    await repo_item.wait_for(state="visible", timeout=15000)
+                    await repo_item.wait_for(state="visible", timeout=60000)
                     await repo_item.click()
                     logger.info(f"Clicked on repo item: {repo_full_name}")
                 except Exception:
@@ -195,8 +195,8 @@ class HydraController:
                     raise Exception(f"Repository '{repo_full_name}' not found or not connected. Please ensure it is authorized in Jules.")
 
                 # Wait for session initialization
-                logger.info("Waiting for session URL...")
-                await page.wait_for_url("**/sessions/*", timeout=45000)
+                logger.info("Waiting for session URL (this can take up to 2 minutes)...")
+                await page.wait_for_url("**/sessions/*", timeout=120000)
                 session_id = page.url.split("/")[-1]
                 logger.info(f"Session created: {session_id}")
                 await self._log_page_state(page, f"Session {session_id} Initialized")
@@ -217,13 +217,14 @@ class HydraController:
     async def _send_initial_instructions(self, page: Page, branch: str):
         prompt = f"Please checkout a new branch named '{branch}' from the latest main/master. Then wait for further instructions."
         input_loc = page.locator(SELECTORS["ask_jules_input"]).first
-        await input_loc.wait_for(state="visible", timeout=30000)
+        await input_loc.wait_for(state="visible", timeout=60000)
         await input_loc.fill(prompt)
         await input_loc.press("Enter")
         logger.info(f"Sent initial instructions for branch {branch}")
 
         # Wait for response start
-        await page.wait_for_selector(SELECTORS["message_content"], timeout=60000)
+        logger.info("Waiting for Jules response (can take up to 2 minutes)...")
+        await page.wait_for_selector(SELECTORS["message_content"], timeout=120000)
         logger.info("Jules response detected")
         await self._log_page_state(page, "Initial Instructions Sent")
 
