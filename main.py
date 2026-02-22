@@ -405,17 +405,33 @@ class HydraApp(App):
 
         tree.root.expand()
 
+    def _make_links(self, text: str) -> str:
+        """Helper to wrap file paths in Rich links."""
+        import re
+        # Pattern to find potential file paths (extensions like .png, .log, .json, .md, .txt)
+        # Matches paths starting with / or ./ or just filename with extension
+        pattern = r'(\b[\w\/\.-]+\.(?:png|log|json|md|txt)\b)'
+
+        def replace(match):
+            path = match.group(1)
+            abs_path = os.path.abspath(path)
+            return f"[link=file://{abs_path}]{path}[/link]"
+
+        return re.sub(pattern, replace, text)
+
     def log_to_ui(self, message: str):
         timestamp = datetime.now().strftime("%H:%M:%S")
-        formatted_msg = f"[{timestamp}] {message}"
+        plain_msg = f"[{timestamp}] {message}"
+        rich_msg = f"[{timestamp}] {self._make_links(message)}"
+
         try:
-            self.query_one("#main-log").write_line(formatted_msg)
+            self.query_one("#main-log").write_line(rich_msg)
         except:
             pass # App might not be fully mounted
 
-        # Also log to file
+        # Also log to file (plain text)
         with open("hydra.log", "a") as f:
-            f.write(formatted_msg + "\n")
+            f.write(plain_msg + "\n")
 
     def save_current_config(self):
         config = {
@@ -564,8 +580,9 @@ class HydraApp(App):
 
         def log_to_explore(msg):
             timestamp = datetime.now().strftime("%H:%M:%S")
+            rich_msg = f"[{timestamp}] {self._make_links(msg)}"
             try:
-                log_widget.write_line(f"[{timestamp}] {msg}")
+                log_widget.write_line(rich_msg)
             except: pass
             self.log_to_ui(msg)
 
@@ -595,6 +612,13 @@ class HydraApp(App):
                         page_node.add(f"🔗 URL: {data['url']}")
                         page_node.add(f"🏷️ Title: {data['title']}")
                         elements_node = page_node.add(f"🏗️ Elements ({len(data['elements'])})")
+                        # Add link to screenshot if exists
+                        safe_name = page_name.replace(' ', '_').lower()
+                        screenshot_file = f"explore_{safe_name}.png"
+                        if os.path.exists(screenshot_file):
+                            abs_shot = os.path.abspath(screenshot_file)
+                            page_node.add(f"📸 [link=file://{abs_shot}]View Screenshot[/link]")
+
                         for el in data["elements"]:
                             label = f"{el['tag']}: {el['text'][:30]}"
                             if el['placeholder']: label += f" (Ph: {el['placeholder']})"
