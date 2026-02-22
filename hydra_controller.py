@@ -17,7 +17,10 @@ SELECTORS = {
     "activity_item": ".activity-item, [class*='activity-item']",
     "session_options_btn": "button:has-text('Session options'), [aria-label*='options']",
     "archive_btn": "text='Archive', :text-is('Archive')",
-    "settings_btn": "[aria-label*='Settings'], button:has-text('Settings'), a[href*='settings']"
+    "settings_btn": "[aria-label*='Settings'], button:has-text('Settings'), a[href*='settings']",
+    "pause_btn": "button:has-text('Pause'), [aria-label*='Pause']",
+    "resume_btn": "button:has-text('Resume'), [aria-label*='Resume'], button:has-text('Restart')",
+    "activity_log": ".activity-log, [class*='activity-log'], .message-list"
 }
 
 class JulesActivity(BaseModel):

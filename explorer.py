@@ -16,7 +16,7 @@ class JulesExplorer:
         self.controller = HydraController(proxy_url, state_path)
         self.ui_map = {}
 
-    async def explore(self):
+    async def explore(self, repo_full_name: Optional[str] = None):
         await self.controller.start(headless=True)
         page = await self.controller.context.new_page()
 
@@ -28,27 +28,13 @@ class JulesExplorer:
             await self._map_current_page(page, "Dashboard")
 
             # 2. Try to find settings
-            settings_selectors = [
-                "[aria-label*='Settings']",
-                "button:has-text('Settings')",
-                "a[href*='settings']",
-                "[class*='settings']"
-            ]
+            await self._explore_settings(page)
 
-            for selector in settings_selectors:
-                try:
-                    settings_btn = page.locator(selector).first
-                    if await settings_btn.is_visible(timeout=2000):
-                        logger.info(f"Found settings via {selector}, clicking...")
-                        await settings_btn.click()
-                        await asyncio.sleep(2)
-                        await self._map_current_page(page, "Settings")
-                        await page.go_back()
-                        break
-                except:
-                    continue
+            # 3. Active Exploration if repo is provided
+            if repo_full_name:
+                await self.active_explore(page, repo_full_name)
 
-            # 3. Save map
+            # 4. Save map
             with open("jules_ui_map.json", "w") as f:
                 json.dump(self.ui_map, f, indent=2)
             logger.info("UI Map saved to jules_ui_map.json")
@@ -57,6 +43,82 @@ class JulesExplorer:
             logger.error(f"Exploration failed: {e}")
         finally:
             await self.controller.stop()
+
+    async def _explore_settings(self, page: Page):
+        settings_selectors = [
+            "[aria-label*='Settings']",
+            "button:has-text('Settings')",
+            "a[href*='settings']",
+            "[class*='settings']"
+        ]
+
+        for selector in settings_selectors:
+            try:
+                settings_btn = page.locator(selector).first
+                if await settings_btn.is_visible(timeout=2000):
+                    logger.info(f"Found settings via {selector}, clicking...")
+                    await settings_btn.click()
+                    await asyncio.sleep(2)
+                    await self._map_current_page(page, "Settings")
+                    await page.go_back()
+                    break
+            except:
+                continue
+
+    async def active_explore(self, page: Page, repo_full_name: str):
+        logger.info(f"Starting active exploration for repo: {repo_full_name}")
+
+        try:
+            # 1. Create Session
+            logger.info("Creating session for active test...")
+            session_id = await self.controller.create_session(repo_full_name, "explorer-test-branch")
+            if not session_id:
+                logger.error("Failed to create session for active exploration")
+                return
+
+            await self._map_current_page(page, "Session View")
+
+            # 2. Send command and observe activity
+            logger.info("Sending simple command to observe activity...")
+            await self.controller.send_message(session_id, "Please create a dummy test file named 'explorer_test.txt' with content 'hello world'. Then wait.")
+            await asyncio.sleep(5)
+            await self._map_current_page(page, "Session Activity Observed")
+
+            # 3. Discover management buttons (Pause, Stop, etc.)
+            logger.info("Discovering session management buttons...")
+            management_selectors = [
+                "button:has-text('Pause')", "button:has-text('Stop')",
+                "button:has-text('Restart')", "button:has-text('Resume')",
+                "[aria-label*='options']", "[aria-label*='menu']"
+            ]
+
+            for selector in management_selectors:
+                try:
+                    el = page.locator(selector).first
+                    if await el.is_visible(timeout=1000):
+                        logger.info(f"Detected management element: {selector}")
+                except:
+                    continue
+
+            # 4. Mind Wipe test
+            logger.info("Performing mind wipe discovery...")
+            await self.controller.mind_wipe(session_id)
+            await asyncio.sleep(3)
+            await self._map_current_page(page, "Post Mind Wipe")
+
+            # 5. Archive and Cleanup
+            logger.info("Finishing active exploration and archiving session...")
+            # Logic for archiving is often in a menu
+            try:
+                await page.locator("button:has-text('Session options')").click()
+                await asyncio.sleep(1)
+                await page.locator("text='Archive'").click()
+                logger.info("Session archived.")
+            except:
+                logger.warning("Could not find Archive button via default path.")
+
+        except Exception as e:
+            logger.error(f"Active exploration failed: {e}")
 
     async def _map_current_page(self, page: Page, page_name: str):
         logger.info(f"Mapping page: {page_name}")

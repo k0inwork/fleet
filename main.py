@@ -537,13 +537,15 @@ class HydraApp(App):
     async def perform_exploration(self):
         from explorer import JulesExplorer
         proxy_url = self.query_one("#proxy-url").value or os.getenv("PROXY_URL")
+        repo_full_name = self.query_one("#repo-name").value or os.getenv("REPO_NAME")
+
         if proxy_url and "://" not in proxy_url:
             proxy_url = f"socks5://{proxy_url}"
 
-        self.log_to_ui("Starting automated Jules UI exploration...")
+        self.log_to_ui(f"Starting automated Jules UI exploration (Target Repo: {repo_full_name})...")
         explorer = JulesExplorer(proxy_url)
         try:
-            await explorer.explore()
+            await explorer.explore(repo_full_name=repo_full_name)
             self.log_to_ui("Exploration complete! Results saved to jules_ui_map.json")
             self.notify("Jules UI Exploration Complete!")
         except Exception as e:
