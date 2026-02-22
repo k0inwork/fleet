@@ -99,6 +99,16 @@ class HydraController:
         except Exception as e:
             logger.error(f"Error stopping HydraController: {e}")
 
+    async def _log_page_state(self, page: Page, step: str):
+        url = page.url
+        title = await page.title()
+        logger.info(f"[{step}] URL: {url} | Title: {title}")
+        try:
+            safe_step = step.replace(" ", "_").lower()
+            await page.screenshot(path=f"diag_{safe_step}.png")
+        except:
+            pass
+
     async def create_session(self, repo_full_name: str, branch: str) -> Optional[str]:
         """Creates a new session for a specific repo and branch."""
         async with self.semaphore:
@@ -106,6 +116,7 @@ class HydraController:
             try:
                 logger.info(f"Navigating to jules.google.com for repo {repo_full_name}")
                 await page.goto("https://jules.google.com", wait_until="domcontentloaded", timeout=60000)
+                await self._log_page_state(page, "Navigated to Jules")
 
                 # Check if we are at the login page
                 if "accounts.google.com" in page.url:
@@ -114,34 +125,41 @@ class HydraController:
 
                 logger.info("Looking for 'New session' button")
                 try:
-                    await page.locator(SELECTORS["new_session_btn"]).first.wait_for(state="visible", timeout=30000)
+                    btn = page.locator(SELECTORS["new_session_btn"]).first
+                    await btn.wait_for(state="visible", timeout=30000)
+                    logger.info("'New session' button is visible")
                 except Exception as te:
-                    await page.screenshot(path=f"error_new_session_{repo_full_name.replace('/', '_')}.png")
+                    await self._log_page_state(page, "Error Waiting For New Session Btn")
                     logger.error(f"Timeout waiting for 'New session' button. URL: {page.url}")
                     raise te
 
                 await asyncio.sleep(1) # Human-like pause
-                await page.locator(SELECTORS["new_session_btn"]).first.click()
+                await btn.click()
+                logger.info("Clicked 'New session'")
 
                 # Search for the repo
                 logger.info(f"Searching for repository: {repo_full_name}")
                 search_input = page.locator(SELECTORS["repo_search_input"]).first
                 await search_input.wait_for(state="visible", timeout=20000)
                 await search_input.fill(repo_full_name)
+                logger.info(f"Filled search input with {repo_full_name}")
 
                 logger.info(f"Selecting repository: {repo_full_name}")
                 # Wait a bit for search results to filter
                 await asyncio.sleep(2)
+                await self._log_page_state(page, "Search Results")
 
                 repo_item = page.get_by_text(repo_full_name).first
                 await repo_item.wait_for(state="visible", timeout=20000)
                 await repo_item.click()
+                logger.info(f"Clicked on repo item: {repo_full_name}")
 
                 # Wait for session initialization
                 logger.info("Waiting for session URL...")
                 await page.wait_for_url("**/sessions/*", timeout=45000)
                 session_id = page.url.split("/")[-1]
                 logger.info(f"Session created: {session_id}")
+                await self._log_page_state(page, f"Session {session_id} Initialized")
 
                 # Instruct Jules to checkout the branch
                 logger.info(f"Instructing Jules to checkout branch: {branch}")
@@ -152,19 +170,22 @@ class HydraController:
                 return session_id
             except Exception as e:
                 logger.error(f"Failed to create session for {repo_full_name}: {e}")
-                try:
-                    await page.screenshot(path=f"error_session_fail_{repo_full_name.replace('/', '_')}.png")
-                except:
-                    pass
+                await self._log_page_state(page, "Session Creation Failure")
                 await page.close()
                 raise e
 
     async def _send_initial_instructions(self, page: Page, branch: str):
         prompt = f"Please checkout a new branch named '{branch}' from the latest main/master. Then wait for further instructions."
-        await page.locator(SELECTORS["ask_jules_input"]).fill(prompt)
-        await page.locator(SELECTORS["ask_jules_input"]).press("Enter")
+        input_loc = page.locator(SELECTORS["ask_jules_input"]).first
+        await input_loc.wait_for(state="visible", timeout=30000)
+        await input_loc.fill(prompt)
+        await input_loc.press("Enter")
+        logger.info(f"Sent initial instructions for branch {branch}")
+
         # Wait for response start
-        await page.wait_for_selector(SELECTORS["message_content"])
+        await page.wait_for_selector(SELECTORS["message_content"], timeout=60000)
+        logger.info("Jules response detected")
+        await self._log_page_state(page, "Initial Instructions Sent")
 
     async def send_message(self, session_id: str, message: str):
         session = self.sessions.get(session_id)
@@ -172,12 +193,17 @@ class HydraController:
             return
 
         try:
-            await session.page.locator(SELECTORS["ask_jules_input"]).fill(message)
-            await session.page.locator(SELECTORS["ask_jules_input"]).press("Enter")
+            logger.info(f"Sending message to session {session_id}: {message[:50]}...")
+            input_loc = session.page.locator(SELECTORS["ask_jules_input"]).first
+            await input_loc.wait_for(state="visible", timeout=30000)
+            await input_loc.fill(message)
+            await input_loc.press("Enter")
             # Wait for any new activity to appear
             await asyncio.sleep(2)
+            await self._log_page_state(session.page, f"Sent Message to {session_id}")
         except Exception as e:
             logger.error(f"Failed to send message to session {session_id}: {e}")
+            await self._log_page_state(session.page, f"Failed Send Message to {session_id}")
 
     async def get_activities(self, session_id: str) -> List[JulesActivity]:
         session = self.sessions.get(session_id)
