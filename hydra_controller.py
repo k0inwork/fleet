@@ -16,7 +16,8 @@ SELECTORS = {
     "message_content": ".message-content, [class*='message-content']",
     "activity_item": ".activity-item, [class*='activity-item']",
     "session_options_btn": "button:has-text('Session options'), [aria-label*='options']",
-    "archive_btn": "text='Archive', :text-is('Archive')"
+    "archive_btn": "text='Archive', :text-is('Archive')",
+    "settings_btn": "[aria-label*='Settings'], button:has-text('Settings'), a[href*='settings']"
 }
 
 class JulesActivity(BaseModel):
@@ -150,9 +151,26 @@ class HydraController:
                 await self._log_page_state(page, "Search Results")
 
                 repo_item = page.get_by_text(repo_full_name).first
-                await repo_item.wait_for(state="visible", timeout=20000)
-                await repo_item.click()
-                logger.info(f"Clicked on repo item: {repo_full_name}")
+                try:
+                    await repo_item.wait_for(state="visible", timeout=15000)
+                    await repo_item.click()
+                    logger.info(f"Clicked on repo item: {repo_full_name}")
+                except Exception:
+                    logger.warning(f"Repository {repo_full_name} not found in search results.")
+                    await self._log_page_state(page, "Repo Not Found In Search")
+
+                    # Try to find 'Connect' or 'Add' buttons
+                    connect_btns = page.locator("button:has-text('Connect'), button:has-text('Add'), :text('Connect to GitHub')")
+                    count = await connect_btns.count()
+                    if count > 0:
+                        logger.info(f"Found {count} potential 'Connect' buttons. Repository might need to be authorized.")
+
+                    # Check if there is a settings/config area
+                    settings = page.locator(SELECTORS["settings_btn"]).first
+                    if await settings.is_visible():
+                        logger.info("Settings/Config button found. Repo might be manageable there.")
+
+                    raise Exception(f"Repository '{repo_full_name}' not found or not connected. Please ensure it is authorized in Jules.")
 
                 # Wait for session initialization
                 logger.info("Waiting for session URL...")
