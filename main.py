@@ -30,7 +30,7 @@ from typing import Dict, List, Optional
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Log, Label, Input, Button, TabbedContent, TabPane, TextArea
+from textual.widgets import Header, Footer, Static, Log, Label, Input, Button, TabbedContent, TabPane, TextArea, Tree
 from textual.reactive import reactive
 
 from context_engine import ContextEngine
@@ -115,14 +115,17 @@ class Orchestrator:
         task_node = self.scheduler.nodes[task_id]
         self.log(f"Dispatching task {task_id} to Hydra...")
 
-        # Create or Reuse Session
-        session_id = await self.hydra.create_session(self.config["repo_full_name"], task_node.task.branch)
-        if session_id:
-            self.scheduler.mark_running(task_id, session_id)
-            await self.hydra.send_message(session_id, task_node.task.instruction)
-            self.log(f"Task {task_id} is now running in session {session_id}")
-        else:
-            self.log(f"Failed to create session for task {task_id}")
+        try:
+            # Create or Reuse Session
+            session_id = await self.hydra.create_session(self.config["repo_full_name"], task_node.task.branch)
+            if session_id:
+                self.scheduler.mark_running(task_id, session_id)
+                await self.hydra.send_message(session_id, task_node.task.instruction)
+                self.log(f"Task {task_id} is now running in session {session_id}")
+            else:
+                self.log(f"Failed to create session for task {task_id}: Unknown error")
+        except Exception as e:
+            self.log(f"Failed to create session for task {task_id}: {e}")
 
     async def verify_active_tasks(self):
         for task_id, node in self.scheduler.nodes.items():
@@ -182,11 +185,27 @@ class HydraApp(App):
     }
     #goal-container {
         border: solid yellow;
-        height: auto;
+        height: 15;
         padding: 0 1;
+        transition: height 200ms;
     }
-    .collapsed {
+    #goal-container.collapsed {
         height: 4;
+    }
+    #goal-container.expanded {
+        height: 25;
+    }
+    #dag-tree {
+        display: none;
+        height: 1fr;
+        border: blue;
+        margin: 1 0;
+    }
+    .show-tree #dag-tree {
+        display: block;
+    }
+    .show-tree #user-goal {
+        display: none;
     }
     #goal-header {
         height: auto;
@@ -224,9 +243,10 @@ class HydraApp(App):
                         with Vertical(id="goal-header"):
                             with Vertical(id="goal-container", classes="collapsed"):
                                 with Horizontal():
-                                    yield Label("SYSTEM GOAL")
+                                    yield Label("SYSTEM GOAL / DAG")
                                     yield Button("Toggle Size", id="toggle-goal-btn")
                                 yield TextArea(id="user-goal")
+                                yield Tree("Task Graph", id="dag-tree")
                                 yield Button("START HYDRA FLEET", variant="success", id="start-btn")
                         with Horizontal(id="main-container"):
                             with Vertical(id="left-panel"):
@@ -264,10 +284,9 @@ class HydraApp(App):
         if hasattr(self, "orchestrator"):
             # Update Overall Status
             status_text = "Running" if self.orchestrator.is_running else "Idle / Finished"
-            self.query_one(Header).walk_children() # Header doesn't easily let us set sub-text without more work
 
             if self.orchestrator.scheduler:
-                # Update Task List
+                # Update Task List (Left Panel)
                 task_container = self.query_one("#task-list")
                 status_map = self.orchestrator.scheduler.get_all_status()
 
@@ -281,10 +300,84 @@ class HydraApp(App):
                     else:
                         task_container.mount(Label(f"{task_id}: {status}", id=widget_id))
 
+                # Update DAG Tree
+                self.update_dag_tree(status_map)
+
             # Update Fleet Status
             for i, (sid, session) in enumerate(self.orchestrator.hydra.sessions.items(), 1):
                 if i <= 3:
                     self.query_one(f"#slot-{i}").update(f"Slot {i}: {sid} ({session.branch})")
+
+    def update_dag_tree(self, status_map: Dict[str, str]):
+        tree = self.query_one("#dag-tree")
+
+        # If tree is empty but we have tasks, initialize it
+        try:
+            root = tree.root
+            if not root.children and self.orchestrator.scheduler.nodes:
+                self.build_initial_tree(tree)
+        except:
+            if self.orchestrator.scheduler.nodes:
+                self.build_initial_tree(tree)
+
+        # Update node labels with current status
+        def update_node(node):
+            task_id = node.data
+            if task_id in status_map:
+                status = status_map[task_id]
+                # Add emoji for status
+                emoji = "⏳"
+                if status == "ready": emoji = "✅"
+                if status == "running": emoji = "🚀"
+                if status == "completed": emoji = "🏁"
+                if status == "failed": emoji = "❌"
+                if status == "conflicted": emoji = "⚠️"
+
+                node.label = f"{task_id} [{emoji} {status}]"
+
+            for child in node.children:
+                update_node(child)
+
+        try:
+            for child in tree.root.children:
+                update_node(child)
+        except:
+            pass
+
+    def build_initial_tree(self, tree: Tree):
+        # Ensure we have a root node
+        tree.clear()
+        tree.set_root("Task Graph")
+
+        nodes = self.orchestrator.scheduler.nodes
+        # Find roots (tasks that no one else depends on, OR tasks with no dependencies)
+        # Actually, in a tree view of a DAG, we can show roots as tasks with NO dependencies.
+        # Then children are tasks that depend on them.
+
+        task_to_node = {}
+
+        # First, find all tasks with no dependencies
+        roots = [t_id for t_id, node in nodes.items() if not node.task.dependencies]
+
+        added_tasks = set()
+
+        def add_task_recursive(task_id, parent_node):
+            if task_id in added_tasks: return # Avoid infinite recursion just in case
+            added_tasks.add(task_id)
+
+            status = nodes[task_id].status
+            node = parent_node.add(f"{task_id} [{status}]", data=task_id)
+            node.expand()
+
+            # Find tasks that depend ON this task
+            dependents = [t_id for t_id, n in nodes.items() if task_id in n.task.dependencies]
+            for dep_id in dependents:
+                add_task_recursive(dep_id, node)
+
+        for root_id in roots:
+            add_task_recursive(root_id, tree.root)
+
+        tree.root.expand()
 
     def log_to_ui(self, message: str):
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -323,7 +416,12 @@ class HydraApp(App):
             container = self.query_one("#goal-container")
             if container.has_class("collapsed"):
                 container.remove_class("collapsed")
+                container.add_class("expanded")
+            elif container.has_class("expanded"):
+                container.remove_class("expanded")
+                container.add_class("collapsed")
             else:
+                # Default toggle if neither class is present
                 container.add_class("collapsed")
 
         elif event.button.id == "test-api-btn":
@@ -449,6 +547,15 @@ class HydraApp(App):
 
     async def handle_start(self):
         try:
+            # Show the tree and expand the container
+            container = self.query_one("#goal-container")
+            container.add_class("show-tree")
+            container.remove_class("collapsed")
+            container.add_class("expanded")
+
+            # Reset the tree
+            tree = self.query_one("#dag-tree")
+            tree.clear()
             config = {
                 "gemini_api_key": self.query_one("#api-key").value or os.getenv("GEMINI_API_KEY"),
                 "github_token": self.query_one("#gh-token").value or os.getenv("GITHUB_TOKEN"),
