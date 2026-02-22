@@ -57,6 +57,10 @@ Ensure that:
 4. **Agent Autonomy**: Jules agents are expert engineers; they can handle complex, multi-step workflows in a single session. Trust their ability to execute broad instructions.
 5. **Dependencies**: Map dependencies strictly. A task should only depend on others if it physically cannot start without their completed code (e.g., Frontend depends on API contract/models).
 6. **Graph Size**: Aim for a lean, efficient DAG of 3-6 substantial tasks.
+7. **Test-First Architecture**:
+   - **Mandatory Quality Architect Task**: Always include a primary task (e.g., `test_planning`) that creates a comprehensive `TEST_PLAN.md`. This document must define detailed GUI checks (Playwright), Backend API validations, and End-to-End integration scenarios.
+   - **Implementation Dependencies**: All implementation tasks must depend on the `test_planning` task.
+   - **Test Execution**: Instructions for implementation tasks must explicitly require writing and passing the relevant tests defined in `TEST_PLAN.md` before completion.
 
 Response must be ONLY the JSON object.
 """
