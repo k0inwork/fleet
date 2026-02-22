@@ -51,10 +51,11 @@ Output a JSON object that strictly follows this schema:
 }}
 
 Ensure that:
-1. Tasks are granular enough to be completed in a single Jules session.
-2. Dependencies are correctly mapped (e.g., a feature depends on its required base components).
-3. Branch names are unique and descriptive.
-4. Total tasks should not exceed 15 (daily limit), but keep it efficient.
+1. Tasks should be substantial and high-impact. Avoid trivial or purely administrative tasks (like "setup environment" or "create gitignore") as standalone nodes. Instead, combine them with meaningful implementation (e.g., "Initialize project, configure environment, and implement core data models").
+2. Jules agents are highly capable; they can handle complex, multi-step engineering workflows. Design tasks that leverage this autonomy.
+3. Dependencies must be correctly mapped (e.g., a frontend feature depends on its required API endpoints).
+4. Branch names are unique and descriptive.
+5. Aim for a concise graph of 3-7 tasks for a typical project. Total tasks must not exceed 15.
 
 Response must be ONLY the JSON object.
 """
