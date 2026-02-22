@@ -11,13 +11,13 @@ logger = logging.getLogger("HydraController")
 
 # UI Selectors - Adjust these as the Jules UI evolves
 SELECTORS = {
-    "new_session_btn": "button:has-text('New session')",
-    "repo_search_input": "input[placeholder='Search repositories']",
-    "ask_jules_input": "textarea[placeholder='Ask Jules'], [placeholder='Ask Jules']",
-    "message_content": ".message-content",
-    "activity_item": ".activity-item",
-    "session_options_btn": "button:has-text('Session options')",
-    "archive_btn": "text='Archive'"
+    "new_session_btn": "button:has-text('New session'), :text-is('New session')",
+    "repo_search_input": "input[placeholder*='Search'], [placeholder*='Search repositories']",
+    "ask_jules_input": "textarea[placeholder*='Ask Jules'], [placeholder*='Ask Jules']",
+    "message_content": ".message-content, [class*='message-content']",
+    "activity_item": ".activity-item, [class*='activity-item']",
+    "session_options_btn": "button:has-text('Session options'), [aria-label*='options']",
+    "archive_btn": "text='Archive', :text-is('Archive')"
 }
 
 class JulesActivity(BaseModel):
@@ -100,25 +100,40 @@ class HydraController:
             page = await self.context.new_page()
             try:
                 logger.info(f"Navigating to jules.google.com for repo {repo_full_name}")
-                await page.goto("https://jules.google.com")
+                await page.goto("https://jules.google.com", wait_until="networkidle", timeout=60000)
 
-                logger.info("Clicking 'New session' button")
-                await page.locator(SELECTORS["new_session_btn"]).wait_for(state="visible", timeout=15000)
-                await page.locator(SELECTORS["new_session_btn"]).click()
+                # Check if we are at the login page
+                if "accounts.google.com" in page.url:
+                    logger.error("Redirected to Google Login. Session state might be expired or invalid.")
+                    raise Exception("Authentication required. Please login again.")
+
+                logger.info("Looking for 'New session' button")
+                try:
+                    await page.locator(SELECTORS["new_session_btn"]).first.wait_for(state="visible", timeout=30000)
+                except Exception as te:
+                    await page.screenshot(path=f"error_new_session_{repo_full_name.replace('/', '_')}.png")
+                    logger.error(f"Timeout waiting for 'New session' button. URL: {page.url}")
+                    raise te
+
+                await page.locator(SELECTORS["new_session_btn"]).first.click()
 
                 # Search for the repo
                 logger.info(f"Searching for repository: {repo_full_name}")
-                search_input = page.locator(SELECTORS["repo_search_input"])
-                await search_input.wait_for(state="visible", timeout=10000)
+                search_input = page.locator(SELECTORS["repo_search_input"]).first
+                await search_input.wait_for(state="visible", timeout=20000)
                 await search_input.fill(repo_full_name)
 
                 logger.info(f"Selecting repository: {repo_full_name}")
-                await page.get_by_text(repo_full_name).first.wait_for(state="visible", timeout=10000)
-                await page.get_by_text(repo_full_name).first.click()
+                # Wait a bit for search results to filter
+                await asyncio.sleep(2)
+
+                repo_item = page.get_by_text(repo_full_name).first
+                await repo_item.wait_for(state="visible", timeout=20000)
+                await repo_item.click()
 
                 # Wait for session initialization
                 logger.info("Waiting for session URL...")
-                await page.wait_for_url("**/sessions/*", timeout=30000)
+                await page.wait_for_url("**/sessions/*", timeout=45000)
                 session_id = page.url.split("/")[-1]
                 logger.info(f"Session created: {session_id}")
 
@@ -131,11 +146,12 @@ class HydraController:
                 return session_id
             except Exception as e:
                 logger.error(f"Failed to create session for {repo_full_name}: {e}")
-                # We can't easily pass this back to the UI log via the current architecture
-                # without modifying Orchestrator or passing a callback.
-                # For now, we rely on the orchestrator logging that it failed.
+                try:
+                    await page.screenshot(path=f"error_session_fail_{repo_full_name.replace('/', '_')}.png")
+                except:
+                    pass
                 await page.close()
-                raise e # Raise to let orchestrator handle/log it better if it wants
+                raise e
 
     async def _send_initial_instructions(self, page: Page, branch: str):
         prompt = f"Please checkout a new branch named '{branch}' from the latest main/master. Then wait for further instructions."
