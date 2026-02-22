@@ -51,11 +51,12 @@ Output a JSON object that strictly follows this schema:
 }}
 
 Ensure that:
-1. Tasks should be substantial and high-impact. Avoid trivial or purely administrative tasks (like "setup environment" or "create gitignore") as standalone nodes. Instead, combine them with meaningful implementation (e.g., "Initialize project, configure environment, and implement core data models").
-2. Jules agents are highly capable; they can handle complex, multi-step engineering workflows. Design tasks that leverage this autonomy.
-3. Dependencies must be correctly mapped (e.g., a frontend feature depends on its required API endpoints).
-4. Branch names are unique and descriptive.
-5. Aim for a concise graph of 3-7 tasks for a typical project. Total tasks must not exceed 15.
+1. **Parallelism is Priority**: Maximize parallel execution by identifying independent tracks of work (e.g., Backend implementation, Frontend UI development, and Documentation/Test suites can often run concurrently). Aim for up to 3 parallel tasks at any given time.
+2. **Merge Sequential Overhead**: If tasks are strictly sequential and depend on each other, merge them into a single, comprehensive task. Do not split sequential work unless there is a clear benefit to doing so (e.g., hitting a very large context limit).
+3. **Substantial Tasks**: Each task should be high-impact. Avoid trivial nodes like "setup environment". Combine setup with the first meaningful implementation phase.
+4. **Agent Autonomy**: Jules agents are expert engineers; they can handle complex, multi-step workflows in a single session. Trust their ability to execute broad instructions.
+5. **Dependencies**: Map dependencies strictly. A task should only depend on others if it physically cannot start without their completed code (e.g., Frontend depends on API contract/models).
+6. **Graph Size**: Aim for a lean, efficient DAG of 3-6 substantial tasks.
 
 Response must be ONLY the JSON object.
 """
