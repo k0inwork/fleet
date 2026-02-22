@@ -34,10 +34,12 @@ class JulesExplorer:
             if repo_full_name:
                 await self.active_explore(page, repo_full_name)
 
-            # 4. Save map
+            # 4. Save map and refined selectors
             with open("jules_ui_map.json", "w") as f:
                 json.dump(self.ui_map, f, indent=2)
             logger.info("UI Map saved to jules_ui_map.json")
+
+            self._generate_refined_selectors()
 
         except Exception as e:
             logger.error(f"Exploration failed: {e}")
@@ -119,6 +121,58 @@ class JulesExplorer:
 
         except Exception as e:
             logger.error(f"Active exploration failed: {e}")
+
+    def _generate_refined_selectors(self):
+        """Analyzes the ui_map and generates refined_selectors.json."""
+        refined = {}
+
+        # Heuristic: Look for elements that match our desired actions
+        # We'll look across all mapped pages for the best identifiers
+        for page_name, data in self.ui_map.items():
+            for el in data["elements"]:
+                text = el["text"].lower()
+                aria = (el["aria_label"] or "").lower()
+
+                # New Session
+                if "new session" in text or "new session" in aria:
+                    refined["new_session_btn"] = self._build_selector(el)
+
+                # Repo Search
+                if "search" in el["placeholder"].lower() or "repository" in el["placeholder"].lower():
+                    refined["repo_search_input"] = self._build_selector(el)
+
+                # Ask Jules
+                if "ask jules" in el["placeholder"].lower():
+                    refined["ask_jules_input"] = self._build_selector(el)
+
+                # Management
+                if "pause" in text: refined["pause_btn"] = self._build_selector(el)
+                if "resume" in text or "restart" in text: refined["resume_btn"] = self._build_selector(el)
+                if "archive" in text: refined["archive_btn"] = self._build_selector(el)
+
+        if refined:
+            with open("refined_selectors.json", "w") as f:
+                json.dump(refined, f, indent=2)
+            logger.info(f"Generated {len(refined)} refined selectors in refined_selectors.json")
+
+    def _build_selector(self, el: Dict) -> str:
+        """Builds a robust CSS selector from element metadata."""
+        if el["id"]:
+            return f"#{el['id']}"
+
+        if el["aria_label"]:
+            return f"[aria-label='{el['aria_label']}']"
+
+        tag = el["tag"].lower()
+        if el["placeholder"]:
+            return f"{tag}[placeholder='{el['placeholder']}']"
+
+        if el["classes"]:
+            # Use first few classes that aren't too generic
+            cls = ".".join(el["classes"].split()[:2])
+            if cls: return f"{tag}.{cls}"
+
+        return tag
 
     async def _map_current_page(self, page: Page, page_name: str):
         logger.info(f"Mapping page: {page_name}")

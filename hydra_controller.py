@@ -23,6 +23,8 @@ SELECTORS = {
     "activity_log": ".activity-log, [class*='activity-log'], .message-list"
 }
 
+REFINED_SELECTORS_PATH = "refined_selectors.json"
+
 class JulesActivity(BaseModel):
     description: str
     status: str
@@ -39,6 +41,7 @@ class HydraController:
     def __init__(self, proxy_url: Optional[str] = None, state_path: str = "state.json"):
         self.proxy_url = proxy_url
         self.state_path = state_path
+        self._load_refined_selectors()
         self.playwright = None
         self.browser = None
         self.context: Optional[BrowserContext] = None
@@ -90,6 +93,22 @@ class HydraController:
         await self.context.storage_state(path=self.state_path)
         logger.info("Login state saved.")
         await page.close()
+
+    def _load_refined_selectors(self):
+        """Augments the SELECTORS map with discovered data from previous explorations."""
+        if os.path.exists(REFINED_SELECTORS_PATH):
+            try:
+                with open(REFINED_SELECTORS_PATH, "r") as f:
+                    refined = json.load(f)
+                    for key, selector in refined.items():
+                        if key in SELECTORS:
+                            # Prepend refined selector to existing ones to give it priority
+                            SELECTORS[key] = f"{selector}, {SELECTORS[key]}"
+                        else:
+                            SELECTORS[key] = selector
+                logger.info(f"Augmented {len(refined)} selectors from {REFINED_SELECTORS_PATH}")
+            except Exception as e:
+                logger.error(f"Failed to load refined selectors: {e}")
 
     async def stop(self):
         try:
