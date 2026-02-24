@@ -10,17 +10,17 @@ logger = logging.getLogger("HydraController")
 
 # UI Selectors - Adjust these as the Jules UI evolves
 SELECTORS = {
-    "new_session_btn": "button:has-text('New session'), :text-is('New session')",
-    "repo_search_input": "input[placeholder*='Search'], [placeholder*='Search repositories']",
-    "ask_jules_input": "textarea[placeholder*='Ask Jules'], [placeholder*='Ask Jules']",
-    "message_content": ".message-content, [class*='message-content']",
-    "activity_item": ".activity-item, [class*='activity-item']",
-    "session_options_btn": "button:has-text('Session options'), [aria-label*='options']",
-    "archive_btn": "text='Archive', :text-is('Archive')",
-    "settings_btn": "[aria-label*='Settings'], button:has-text('Settings'), a[href*='settings']",
-    "pause_btn": "button:has-text('Pause'), [aria-label*='Pause']",
-    "resume_btn": "button:has-text('Resume'), [aria-label*='Resume'], button:has-text('Restart')",
-    "activity_log": ".activity-log, [class*='activity-log'], .message-list"
+    "new_session_btn": "[data-testid*='new-session'], button:has-text('New session'), :text-is('New session')",
+    "repo_search_input": "input[placeholder*='Search'], [placeholder*='Search repositories'], [role='searchbox']",
+    "ask_jules_input": "textarea[placeholder*='Ask Jules'], [placeholder*='Ask Jules'], [role='textbox']",
+    "message_content": "[data-testid*='message'], .message-content, [class*='message-content']",
+    "activity_item": "[data-testid*='activity'], .activity-item, [class*='activity-item']",
+    "session_options_btn": "button:has-text('Session options'), [aria-label*='options'], [data-testid*='options']",
+    "archive_btn": "text='Archive', :text-is('Archive'), [data-testid*='archive']",
+    "settings_btn": "[aria-label*='Settings'], button:has-text('Settings'), a[href*='settings'], [data-testid*='settings']",
+    "pause_btn": "button:has-text('Pause'), [aria-label*='Pause'], [data-testid*='pause']",
+    "resume_btn": "button:has-text('Resume'), [aria-label*='Resume'], button:has-text('Restart'), [data-testid*='resume']",
+    "activity_log": "[data-testid*='activity-log'], .activity-log, [class*='activity-log'], .message-list"
 }
 
 REFINED_SELECTORS_PATH = "refined_selectors.json"

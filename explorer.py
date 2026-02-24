@@ -133,23 +133,26 @@ class JulesExplorer:
             for el in data["elements"]:
                 text = el["text"].lower()
                 aria = (el["aria_label"] or "").lower()
+                testid = (el["data_testid"] or "").lower()
+                name = (el["name"] or "").lower()
+                title = (el["title"] or "").lower()
 
                 # New Session
-                if "new session" in text or "new session" in aria:
+                if any(x in text or x in aria or x in testid for x in ["new session", "create session"]):
                     refined["new_session_btn"] = self._build_selector(el)
 
                 # Repo Search
-                if "search" in el["placeholder"].lower() or "repository" in el["placeholder"].lower():
+                if any(x in el["placeholder"].lower() or x in aria or x in testid for x in ["search", "repository"]):
                     refined["repo_search_input"] = self._build_selector(el)
 
                 # Ask Jules
-                if "ask jules" in el["placeholder"].lower():
+                if any(x in el["placeholder"].lower() or x in aria or x in testid for x in ["ask jules", "message"]):
                     refined["ask_jules_input"] = self._build_selector(el)
 
                 # Management
-                if "pause" in text: refined["pause_btn"] = self._build_selector(el)
-                if "resume" in text or "restart" in text: refined["resume_btn"] = self._build_selector(el)
-                if "archive" in text: refined["archive_btn"] = self._build_selector(el)
+                if "pause" in text or "pause" in aria: refined["pause_btn"] = self._build_selector(el)
+                if any(x in text or x in aria for x in ["resume", "restart", "play"]): refined["resume_btn"] = self._build_selector(el)
+                if "archive" in text or "archive" in aria: refined["archive_btn"] = self._build_selector(el)
 
         if refined:
             with open("refined_selectors.json", "w") as f:
@@ -157,58 +160,87 @@ class JulesExplorer:
             logger.info(f"Generated {len(refined)} refined selectors in refined_selectors.json")
 
     def _build_selector(self, el: Dict) -> str:
-        """Builds a robust CSS selector from element metadata."""
-        if el["id"]:
+        """Builds a robust CSS selector from element metadata, prioritizing stable attributes."""
+        if el["data_testid"]:
+            return f"[data-testid='{el['data_testid']}']"
+
+        if el["id"] and not any(char.isdigit() for char in el["id"][-4:]): # Avoid dynamic IDs
             return f"#{el['id']}"
+
+        if el["name"]:
+            return f"[name='{el['name']}']"
 
         if el["aria_label"]:
             return f"[aria-label='{el['aria_label']}']"
+
+        if el["title"]:
+            return f"[title='{el['title']}']"
 
         tag = el["tag"].lower()
         if el["placeholder"]:
             return f"{tag}[placeholder='{el['placeholder']}']"
 
         if el["classes"]:
-            # Use first few classes that aren't too generic
-            cls = ".".join(el["classes"].split()[:2])
-            if cls: return f"{tag}.{cls}"
+            # Avoid classes that look like Tailwind or random hashes
+            classes = [c for c in el["classes"].split() if len(c) > 3 and not any(char.isdigit() for char in c)]
+            if classes:
+                return f"{tag}.{'.'.join(classes[:2])}"
 
         return tag
 
     async def _map_current_page(self, page: Page, page_name: str):
         self.log(f"Mapping page: {page_name}")
-        elements = []
+        safe_name = page_name.replace(' ', '_').lower()
 
-        # Scrape interactive elements
+        # 1. Scrape interactive elements with extended metadata
         interactives = await page.eval_on_selector_all(
-            "button, a, input, textarea, [role='button']",
+            "button, a, input, textarea, [role='button'], [data-testid]",
             """
             elements => elements.map(el => {
                 return {
                     tag: el.tagName,
-                    text: el.innerText || el.value || '',
+                    text: (el.innerText || el.value || '').trim(),
                     placeholder: el.placeholder || '',
                     id: el.id,
                     classes: el.className,
                     aria_label: el.getAttribute('aria-label'),
+                    data_testid: el.getAttribute('data-testid'),
+                    name: el.getAttribute('name'),
+                    role: el.getAttribute('role'),
+                    title: el.getAttribute('title'),
                     href: el.getAttribute('href'),
                     type: el.getAttribute('type'),
-                    role: el.getAttribute('role')
+                    isVisible: el.offsetWidth > 0 && el.offsetHeight > 0
                 }
             })
             """
         )
 
+        # 2. Capture Accessibility Tree (Optional, might not be supported in all environments)
+        ax_tree = None
+        try:
+            ax_tree = await page.accessibility.snapshot()
+        except:
+            pass
+
+        # 3. Dump DOM Snapshot
+        dom_path = f"dom_{safe_name}.html"
+        content = await page.content()
+        with open(dom_path, "w") as f:
+            f.write(content)
+
         self.ui_map[page_name] = {
             "url": page.url,
             "title": await page.title(),
-            "elements": interactives
+            "elements": interactives,
+            "ax_tree": ax_tree,
+            "dom_snapshot": dom_path
         }
 
-        # Take a screenshot
-        screenshot_path = f"explore_{page_name.replace(' ', '_').lower()}.png"
-        await page.screenshot(path=screenshot_path)
-        self.log(f"Screenshot for {page_name} saved to {screenshot_path}")
+        # 4. Take a screenshot
+        screenshot_path = f"explore_{safe_name}.png"
+        await page.screenshot(path=screenshot_path, full_page=True)
+        self.log(f"Deep Scrape artifacts for {page_name}: {screenshot_path}, {dom_path}")
 
 if __name__ == "__main__":
     # Configure logging to console for standalone run

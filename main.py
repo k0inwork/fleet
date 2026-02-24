@@ -619,6 +619,10 @@ class HydraApp(App):
                             abs_shot = os.path.abspath(screenshot_file)
                             page_node.add(f"📸 [link=file://{abs_shot}]View Screenshot[/link]")
 
+                        if "dom_snapshot" in data and os.path.exists(data["dom_snapshot"]):
+                            abs_dom = os.path.abspath(data["dom_snapshot"])
+                            page_node.add(f"🌐 [link=file://{abs_dom}]View DOM Snapshot[/link]")
+
                         for el in data["elements"]:
                             label = f"{el['tag']}: {el['text'][:30]}"
                             if el['placeholder']: label += f" (Ph: {el['placeholder']})"
