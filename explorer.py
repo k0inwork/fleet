@@ -17,56 +17,68 @@ class JulesExplorer:
         self.controller = HydraController(proxy_url, state_path)
         self.ui_map = {}
 
-    async def explore(self, repo_full_name: Optional[str] = None):
+    async def explore(self, repo_full_name: Optional[str] = None, max_pages: int = 10):
         await self.controller.start(headless=True)
         page = await self.controller.context.new_page()
 
+        visited = set()
+        to_visit = ["https://jules.google.com"]
+        pages_mapped = 0
+
         try:
-            self.log("Navigating to jules.google.com for exploration...")
-            await page.goto("https://jules.google.com", wait_until="domcontentloaded", timeout=60000)
+            while to_visit and pages_mapped < max_pages:
+                url = to_visit.pop(0)
+                if url in visited or "logout" in url.lower():
+                    continue
 
-            # 1. Map Dashboard
-            await self._map_current_page(page, "Dashboard")
+                self.log(f"Crawling ({pages_mapped+1}/{max_pages}): {url}")
+                try:
+                    # Try to dismiss any blocking modals from previous page
+                    try:
+                        await page.keyboard.press("Escape")
+                        await asyncio.sleep(0.5)
+                    except: pass
 
-            # 2. Try to find settings
-            await self._explore_settings(page)
+                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    await asyncio.sleep(2) # Wait for dynamic content
 
-            # 3. Active Exploration if repo is provided
+                    # If we got redirected to a visited URL, skip
+                    if page.url != url and page.url in visited:
+                        self.log(f"Redirected to already visited URL: {page.url}")
+                        continue
+
+                    page_name = await page.title() or url.split("/")[-1] or "Home"
+                    await self._map_current_page(page, page_name)
+                    visited.add(url)
+                    pages_mapped += 1
+
+                    # Extract internal links
+                    links = await page.eval_on_selector_all(
+                        "a[href]",
+                        "elements => elements.map(el => el.href)"
+                    )
+                    for link in links:
+                        if "jules.google.com" in link and link not in visited and link not in to_visit:
+                            if not any(x in link.lower() for x in ["logout", "signout", "delete"]):
+                                to_visit.append(link)
+                except Exception as e:
+                    self.log(f"Failed to crawl {url}: {e}")
+
+            # Active Exploration if repo is provided
             if repo_full_name:
                 await self.active_explore(page, repo_full_name)
 
-            # 4. Save map and refined selectors
+            # Save map and refined selectors
             with open("jules_ui_map.json", "w") as f:
                 json.dump(self.ui_map, f, indent=2)
-            logger.info("UI Map saved to jules_ui_map.json")
+            self.log(f"UI Map with {pages_mapped} pages saved to jules_ui_map.json")
 
             self._generate_refined_selectors()
 
         except Exception as e:
-            logger.error(f"Exploration failed: {e}")
+            self.log(f"Exploration failed: {e}")
         finally:
             await self.controller.stop()
-
-    async def _explore_settings(self, page: Page):
-        settings_selectors = [
-            "[aria-label*='Settings']",
-            "button:has-text('Settings')",
-            "a[href*='settings']",
-            "[class*='settings']"
-        ]
-
-        for selector in settings_selectors:
-            try:
-                settings_btn = page.locator(selector).first
-                if await settings_btn.is_visible(timeout=2000):
-                    self.log(f"Found settings via {selector}, clicking...")
-                    await settings_btn.click()
-                    await asyncio.sleep(2)
-                    await self._map_current_page(page, "Settings")
-                    await page.go_back()
-                    break
-            except:
-                continue
 
     async def active_explore(self, page: Page, repo_full_name: str):
         self.log(f"Starting active exploration for repo: {repo_full_name}")
@@ -189,8 +201,15 @@ class JulesExplorer:
         return tag
 
     async def _map_current_page(self, page: Page, page_name: str):
+        # Ensure unique page name if title is duplicate
+        orig_name = page_name
+        counter = 1
+        while page_name in self.ui_map:
+            page_name = f"{orig_name} ({counter})"
+            counter += 1
+
         self.log(f"Mapping page: {page_name}")
-        safe_name = page_name.replace(' ', '_').lower()
+        safe_name = page_name.replace(' ', '_').replace('(', '').replace(')', '').replace('/', '_').lower()
 
         # 1. Scrape interactive elements with extended metadata
         interactives = await page.eval_on_selector_all(

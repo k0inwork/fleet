@@ -1,9 +1,9 @@
 {
-  "Dashboard": {
+  "Jules": {
     "url": "https://jules.google.com/",
     "title": "Jules",
     "elements": [],
     "ax_tree": null,
-    "dom_snapshot": "dom_dashboard.html"
+    "dom_snapshot": "dom_jules.html"
   }
 }
