@@ -20,7 +20,13 @@ SELECTORS = {
     "settings_btn": "[aria-label*='Settings'], button:has-text('Settings'), a[href*='settings'], [data-testid*='settings']",
     "pause_btn": "button:has-text('Pause'), [aria-label*='Pause'], [data-testid*='pause']",
     "resume_btn": "button:has-text('Resume'), [aria-label*='Resume'], button:has-text('Restart'), [data-testid*='resume']",
-    "activity_log": "[data-testid*='activity-log'], .activity-log, [class*='activity-log'], .message-list"
+    "activity_log": "[data-testid*='activity-log'], .activity-log, [class*='activity-log'], .message-list",
+
+    # New Dashboard Selectors
+    "repo_selector_dropdown": "[role='button'][aria-haspopup='listbox'], .repo-selector, button:has-text('Select repository')",
+    "branch_indicator": "[class*='branch-selector'], [aria-label*='branch'], .branch-info",
+    "mode_selector": "button:has-text('Start'), button:has-text('Plan'), [aria-label*='mode']",
+    "start_btn_dashboard": "button[type='submit'], button:has-text('Send'), [data-testid*='send-button']"
 }
 
 REFINED_SELECTORS_PATH = "refined_selectors.json"
@@ -239,43 +245,45 @@ class HydraController:
             try:
                 logger.info(f"Navigating to jules.google.com for repo {repo_full_name}")
                 await page.goto("https://jules.google.com", wait_until="domcontentloaded", timeout=60000)
-                await self._log_page_state(page, "Navigated to Jules")
+                await self._log_page_state(page, "Navigated to Dashboard")
 
                 # Ensure we are logged in
                 await self.ensure_logged_in(page)
 
-                logger.info("Looking for 'New session' button")
-                try:
-                    btn = page.locator(SELECTORS["new_session_btn"]).first
-                    await btn.wait_for(state="visible", timeout=60000)
-                    logger.info("'New session' button is visible")
-                except Exception as te:
-                    await self._log_page_state(page, "Error Waiting For New Session Btn")
-                    logger.error(f"Timeout waiting for 'New session' button. URL: {page.url}")
-                    raise te
-
-                await asyncio.sleep(1) # Human-like pause
-                await btn.click()
-                logger.info("Clicked 'New session'")
-
-                # Search for the repo
-                logger.info(f"Searching for repository: {repo_full_name}")
-                search_input = page.locator(SELECTORS["repo_search_input"]).first
-                await search_input.wait_for(state="visible", timeout=60000)
-                await search_input.fill(repo_full_name)
-                logger.info(f"Filled search input with {repo_full_name}")
-
+                # 1. Select Repository (Top Right)
                 logger.info(f"Selecting repository: {repo_full_name}")
-                # Wait a bit for search results to filter
-                await asyncio.sleep(2)
-                await self._log_page_state(page, "Search Results")
-
-                repo_item = page.get_by_text(repo_full_name).first
                 try:
-                    await repo_item.wait_for(state="visible", timeout=60000)
+                    dropdown = page.locator(SELECTORS["repo_selector_dropdown"]).first
+                    await dropdown.wait_for(state="visible", timeout=30000)
+                    await dropdown.click()
+
+                    search_input = page.locator(SELECTORS["repo_search_input"]).first
+                    await search_input.wait_for(state="visible", timeout=30000)
+                    await search_input.fill(repo_full_name)
+
+                    await asyncio.sleep(1)
+                    repo_item = page.get_by_text(repo_full_name).first
+                    await repo_item.wait_for(state="visible", timeout=30000)
                     await repo_item.click()
-                    logger.info(f"Clicked on repo item: {repo_full_name}")
-                except Exception:
+                    logger.info(f"Selected repository: {repo_full_name}")
+                except Exception as re:
+                    logger.warning(f"Dropdown-based repo selection failed: {re}. Trying legacy button flow...")
+                    # Fallback to 'New session' button flow if dropdown fails
+                    btn = page.locator(SELECTORS["new_session_btn"]).first
+                    await btn.wait_for(state="visible", timeout=30000)
+                    await btn.click()
+
+                    search_input = page.locator(SELECTORS["repo_search_input"]).first
+                    await search_input.wait_for(state="visible", timeout=30000)
+                    await search_input.fill(repo_full_name)
+
+                    await asyncio.sleep(1)
+                    repo_item = page.get_by_text(repo_full_name).first
+                    try:
+                        await repo_item.wait_for(state="visible", timeout=30000)
+                        await repo_item.click()
+                        logger.info(f"Legacy flow clicked on repo item: {repo_full_name}")
+                    except Exception:
                     logger.warning(f"Repository {repo_full_name} not found in search results.")
                     await self._log_page_state(page, "Repo Not Found In Search")
 
@@ -292,16 +300,52 @@ class HydraController:
 
                     raise Exception(f"Repository '{repo_full_name}' not found or not connected. Please ensure it is authorized in Jules.")
 
+                # 2. Configure Task (Branch & Start)
+                logger.info(f"Configuring task for branch: {branch}")
+
+                # Verify branch (Bottom Right)
+                branch_el = page.locator(SELECTORS["branch_indicator"]).first
+                if await branch_el.is_visible(timeout=5000):
+                    current_branch = await branch_el.inner_text()
+                    logger.info(f"Current branch indicator shows: {current_branch}")
+                    if branch not in current_branch:
+                        logger.info(f"Attempting to change branch to {branch}...")
+                        await branch_el.click()
+                        await page.get_by_text(branch).first.click()
+
+                # Enter instruction into the text area
+                input_loc = page.locator(SELECTORS["ask_jules_input"]).first
+                await input_loc.wait_for(state="visible", timeout=30000)
+                # For initial session creation, we might want to just enter the checkout command
+                # if the UI allows it, or wait until Start is clicked.
+                prompt = f"Please checkout a new branch named '{branch}' from the latest main/master. Then wait for further instructions."
+                await input_loc.fill(prompt)
+
+                # Ensure 'Start' mode is selected (Bottom Left)
+                mode_btn = page.locator(SELECTORS["mode_selector"]).first
+                if await mode_btn.is_visible(timeout=10000):
+                    current_mode = await mode_btn.inner_text()
+                    if "Start" not in current_mode:
+                        logger.info(f"Current mode is {current_mode}, clicking to change...")
+                        await mode_btn.click()
+                        await page.get_by_text("Start").first.click()
+                    logger.info("Verified 'Start' mode.")
+
+                # Click the primary action button (Send/Start)
+                send_btn = page.locator(SELECTORS["start_btn_dashboard"]).first
+                if await send_btn.is_visible(timeout=10000):
+                    await send_btn.click()
+                    logger.info("Clicked 'Send/Start' button to initialize session.")
+                else:
+                    await page.keyboard.press("Enter")
+                    logger.info("Pressed 'Enter' to initialize session.")
+
                 # Wait for session initialization
                 logger.info("Waiting for session URL (this can take up to 2 minutes)...")
                 await page.wait_for_url("**/sessions/*", timeout=120000)
                 session_id = page.url.split("/")[-1]
                 logger.info(f"Session created: {session_id}")
                 await self._log_page_state(page, f"Session {session_id} Initialized")
-
-                # Instruct Jules to checkout the branch
-                logger.info(f"Instructing Jules to checkout branch: {branch}")
-                await self._send_initial_instructions(page, branch)
 
                 session = JulesSession(session_id, branch, page)
                 self.sessions[session_id] = session
@@ -313,18 +357,16 @@ class HydraController:
                 raise e
 
     async def _send_initial_instructions(self, page: Page, branch: str):
-        prompt = f"Please checkout a new branch named '{branch}' from the latest main/master. Then wait for further instructions."
-        input_loc = page.locator(SELECTORS["ask_jules_input"]).first
-        await input_loc.wait_for(state="visible", timeout=60000)
-        await input_loc.fill(prompt)
-        await input_loc.press("Enter")
-        logger.info(f"Sent initial instructions for branch {branch}")
-
-        # Wait for response start
+        # This is now largely handled inside create_session's 'Start' flow
+        # But we keep it as a verification step to ensure Jules started responding
         logger.info("Waiting for Jules response (can take up to 2 minutes)...")
-        await page.wait_for_selector(SELECTORS["message_content"], timeout=120000)
-        logger.info("Jules response detected")
-        await self._log_page_state(page, "Initial Instructions Sent")
+        try:
+            await page.wait_for_selector(SELECTORS["message_content"], timeout=120000)
+            logger.info("Jules response detected")
+            await self._log_page_state(page, "Initial Instructions Verified")
+        except:
+            logger.warning("Timeout waiting for Jules initial response. Checking page state...")
+            await self._log_page_state(page, "Initial Response Timeout")
 
     async def send_message(self, session_id: str, message: str):
         session = self.sessions.get(session_id)
