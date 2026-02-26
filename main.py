@@ -318,6 +318,17 @@ class HydraApp(App):
         self.load_ui_map_into_tree()
 
     def update_ui(self):
+        # Synchronize session state from file if it changed
+        if os.path.exists("state.json"):
+            try:
+                with open("state.json", "r") as f:
+                    new_state = f.read()
+                    text_area = self.query_one("#session-state")
+                    if text_area.text != new_state:
+                        text_area.text = new_state
+                        # self.log_to_ui("Synchronized session state from background process.")
+            except: pass
+
         if hasattr(self, "orchestrator"):
             # Update Overall Status
             status_text = "Running" if self.orchestrator.is_running else "Idle / Finished"

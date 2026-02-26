@@ -69,9 +69,15 @@ class HydraController:
             "device_scale_factor": 1,
         }
 
-        if os.path.exists(self.state_path):
+        if os.path.exists(self.state_path) and os.path.getsize(self.state_path) > 0:
+            logger.info(f"Loading existing session state from {self.state_path}...")
             self.context = await self.browser.new_context(storage_state=self.state_path, **context_args)
+            # Log cookie count for diagnostics
+            state = json.load(open(self.state_path))
+            cookies = state.get("cookies", [])
+            logger.info(f"Loaded {len(cookies)} cookies from state.")
         else:
+            logger.info("Starting fresh session (no valid state.json found).")
             self.context = await self.browser.new_context(**context_args)
 
     async def login(self):
@@ -200,6 +206,32 @@ class HydraController:
         except:
             pass
 
+    async def ensure_logged_in(self, page: Page):
+        """Checks if the page is at a login screen and performs login if necessary."""
+        if "accounts.google.com" in page.url:
+            await self.check_and_perform_autologin(page)
+        else:
+            # Sometimes we are on jules.google.com but see a 'Sign in' button
+            sign_in_btn = page.get_by_role("button", name="Sign in")
+            if await sign_in_btn.is_visible(timeout=2000):
+                logger.info("Found 'Sign in' button on Jules page. Clicking...")
+                await sign_in_btn.click()
+                await page.wait_for_url("**/accounts.google.com/**", timeout=10000)
+                await self.check_and_perform_autologin(page)
+
+        # Final verification: look for 'New session' button to confirm authentication
+        new_session_btn = page.locator(SELECTORS["new_session_btn"]).first
+        try:
+            await new_session_btn.wait_for(state="visible", timeout=30000)
+            logger.info("Authentication verified: 'New session' button is visible.")
+            await self._log_page_state(page, "Login Verified")
+        except:
+            logger.warning("Could not verify authentication. Page might be in an unexpected state.")
+            await self._log_page_state(page, "Authentication Verification Failure")
+            # If we're still at a login screen, autologin failed
+            if "accounts.google.com" in page.url or await page.get_by_role("button", name="Sign in").is_visible():
+                raise Exception("Automated login failed or required manual interaction. Please use 'Login to Google' for manual authentication.")
+
     async def create_session(self, repo_full_name: str, branch: str) -> Optional[str]:
         """Creates a new session for a specific repo and branch."""
         async with self.semaphore:
@@ -209,12 +241,8 @@ class HydraController:
                 await page.goto("https://jules.google.com", wait_until="domcontentloaded", timeout=60000)
                 await self._log_page_state(page, "Navigated to Jules")
 
-                # Check if we are at the login page
-                if "accounts.google.com" in page.url:
-                    await self.check_and_perform_autologin(page)
-                    if "accounts.google.com" in page.url:
-                        logger.error("Redirected to Google Login and autologin failed or was skipped.")
-                        raise Exception("Authentication required. Please login again.")
+                # Ensure we are logged in
+                await self.ensure_logged_in(page)
 
                 logger.info("Looking for 'New session' button")
                 try:

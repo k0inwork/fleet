@@ -43,6 +43,9 @@ class JulesExplorer:
                     await page.goto(url, wait_until="domcontentloaded", timeout=30000)
                     await asyncio.sleep(2) # Wait for dynamic content
 
+                    # Ensure authenticated for EVERY page crawl
+                    await self.controller.ensure_logged_in(page)
+
                     # If we got redirected to a visited URL, skip
                     if page.url != url and page.url in visited:
                         self.log(f"Redirected to already visited URL: {page.url}")
