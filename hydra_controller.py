@@ -137,10 +137,23 @@ class HydraController:
 
         logger.info(f"Attempting automated Google Login for {email}...")
         try:
-            # 1. Fill Email
-            await page.locator("input[type='email']").fill(email)
-            await page.get_by_role("button", name="Next").click()
-            await asyncio.sleep(2)
+            # Handle Account Chooser if it appears
+            if "AccountChooser" in page.url or await page.get_by_text("Choose an account").is_visible(timeout=5000):
+                logger.info("Account chooser detected. Looking for matching account...")
+                account_entry = page.get_by_text(email).first
+                if await account_entry.is_visible(timeout=5000):
+                    await account_entry.click()
+                    logger.info(f"Selected account: {email}")
+                else:
+                    logger.info("Matching account not found in chooser. Clicking 'Use another account'...")
+                    await page.get_by_text("Use another account").click()
+
+            # 1. Fill Email (if we aren't already past this step)
+            email_input = page.locator("input[type='email']")
+            if await email_input.is_visible(timeout=5000):
+                await email_input.fill(email)
+                await page.get_by_role("button", name="Next").click()
+                await asyncio.sleep(2)
 
             # 2. Fill Password
             pw_input = page.locator("input[type='password']")
@@ -150,6 +163,13 @@ class HydraController:
 
             # 3. Handle 'Confirm your recovery email' or other hurdles if they appear
             await asyncio.sleep(5)
+
+            # Re-check for password if redirected back
+            if await page.locator("input[type='password']").is_visible(timeout=2000):
+                await page.locator("input[type='password']").fill(password)
+                await page.get_by_role("button", name="Next").click()
+                await asyncio.sleep(3)
+
             if "recovery" in page.url:
                 logger.info("Handling recovery email challenge...")
                 recovery_email = self.credentials.get("recovery_email")
