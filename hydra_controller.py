@@ -38,9 +38,10 @@ class JulesSession:
         self.current_task_id: Optional[str] = None
 
 class HydraController:
-    def __init__(self, proxy_url: Optional[str] = None, state_path: str = "state.json"):
+    def __init__(self, proxy_url: Optional[str] = None, state_path: str = "state.json", credentials: Optional[Dict] = None):
         self.proxy_url = proxy_url
         self.state_path = state_path
+        self.credentials = credentials or {}
         self._load_refined_selectors()
         self.playwright = None
         self.browser = None
@@ -122,6 +123,53 @@ class HydraController:
         except Exception as e:
             logger.error(f"Error stopping HydraController: {e}")
 
+    async def check_and_perform_autologin(self, page: Page):
+        """Detects and performs Google Login if credentials are provided."""
+        if "accounts.google.com" not in page.url:
+            return
+
+        email = self.credentials.get("google_email") or os.getenv("GOOGLE_EMAIL")
+        password = self.credentials.get("google_password") or os.getenv("GOOGLE_PASSWORD")
+
+        if not email or not password:
+            logger.warning("Redireted to Google Login but no credentials provided.")
+            return
+
+        logger.info(f"Attempting automated Google Login for {email}...")
+        try:
+            # 1. Fill Email
+            await page.locator("input[type='email']").fill(email)
+            await page.get_by_role("button", name="Next").click()
+            await asyncio.sleep(2)
+
+            # 2. Fill Password
+            pw_input = page.locator("input[type='password']")
+            await pw_input.wait_for(state="visible", timeout=10000)
+            await pw_input.fill(password)
+            await page.get_by_role("button", name="Next").click()
+
+            # 3. Handle 'Confirm your recovery email' or other hurdles if they appear
+            await asyncio.sleep(5)
+            if "recovery" in page.url:
+                logger.info("Handling recovery email challenge...")
+                recovery_email = self.credentials.get("recovery_email")
+                if recovery_email:
+                    # Look for the recovery option
+                    await page.get_by_text("Confirm your recovery email").click()
+                    await page.locator("input[type='email']").fill(recovery_email)
+                    await page.get_by_role("button", name="Next").click()
+
+            # 4. Wait for Jules redirect
+            logger.info("Waiting for Jules redirect after login...")
+            await page.wait_for_url("**/jules.google.com/**", timeout=30000)
+            logger.info("Automated login successful.")
+
+            # Save new state
+            await self.context.storage_state(path=self.state_path)
+        except Exception as e:
+            logger.error(f"Automated login failed: {e}")
+            await page.screenshot(path="autologin_fail.png")
+
     async def _log_page_state(self, page: Page, step: str):
         url = page.url
         title = await page.title()
@@ -143,8 +191,10 @@ class HydraController:
 
                 # Check if we are at the login page
                 if "accounts.google.com" in page.url:
-                    logger.error("Redirected to Google Login. Session state might be expired or invalid.")
-                    raise Exception("Authentication required. Please login again.")
+                    await self.check_and_perform_autologin(page)
+                    if "accounts.google.com" in page.url:
+                        logger.error("Redirected to Google Login and autologin failed or was skipped.")
+                        raise Exception("Authentication required. Please login again.")
 
                 logger.info("Looking for 'New session' button")
                 try:

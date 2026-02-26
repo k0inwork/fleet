@@ -68,7 +68,11 @@ class Orchestrator:
             except Exception as e:
                 self.log(f"Failed to parse manual session state JSON: {e}")
 
-        self.hydra = HydraController(config.get("proxy_url"))
+        credentials = {
+            "google_email": config.get("google_email"),
+            "google_password": config.get("google_password")
+        }
+        self.hydra = HydraController(config.get("proxy_url"), credentials=credentials)
         self.verifier = GitHubVerifier(config["github_token"], config["repo_full_name"], config.get("proxy_url"))
         self.scheduler = None
         self.is_running = False
@@ -247,6 +251,10 @@ class HydraApp(App):
                                 yield Input(placeholder="Proxy URL (socks5://...)", id="proxy-url")
                                 yield Button("Test Proxy", variant="primary", id="test-proxy-btn")
 
+                            with Horizontal():
+                                yield Input(placeholder="Google Email", id="google-email")
+                                yield Input(placeholder="Google Password", id="google-password", password=True)
+
                             yield Label("Playwright Session State (JSON)")
                             yield Label("This stores your login cookies. It is filled automatically after 'Login to Google'.", variant="dim")
                             yield TextArea(id="session-state", classes="collapsed")
@@ -299,6 +307,8 @@ class HydraApp(App):
                     self.query_one("#gh-token").value = config.get("github_token", "")
                     self.query_one("#repo-name").value = config.get("repo_full_name", "")
                     self.query_one("#proxy-url").value = config.get("proxy_url", "")
+                    self.query_one("#google-email").value = config.get("google_email", "")
+                    self.query_one("#google-password").value = config.get("google_password", "")
                     if "session_state" in config:
                         self.query_one("#session-state").text = config["session_state"]
             except:
@@ -439,6 +449,8 @@ class HydraApp(App):
             "github_token": self.query_one("#gh-token").value,
             "repo_full_name": self.query_one("#repo-name").value,
             "proxy_url": self.query_one("#proxy-url").value,
+            "google_email": self.query_one("#google-email").value,
+            "google_password": self.query_one("#google-password").value,
             "session_state": self.query_one("#session-state").text,
             "repo_path": "."
         }
@@ -570,6 +582,8 @@ class HydraApp(App):
         from explorer import JulesExplorer
         proxy_url = self.query_one("#proxy-url").value or os.getenv("PROXY_URL")
         repo_full_name = self.query_one("#repo-name").value or os.getenv("REPO_NAME")
+        google_email = self.query_one("#google-email").value or os.getenv("GOOGLE_EMAIL")
+        google_password = self.query_one("#google-password").value or os.getenv("GOOGLE_PASSWORD")
 
         if proxy_url and "://" not in proxy_url:
             proxy_url = f"socks5://{proxy_url}"
@@ -587,7 +601,8 @@ class HydraApp(App):
             self.log_to_ui(msg)
 
         log_to_explore(f"Starting automated Jules UI exploration (Target Repo: {repo_full_name})...")
-        explorer = JulesExplorer(proxy_url, log_callback=log_to_explore)
+        credentials = {"google_email": google_email, "google_password": google_password}
+        explorer = JulesExplorer(proxy_url, log_callback=log_to_explore, credentials=credentials)
         try:
             await explorer.explore(repo_full_name=repo_full_name)
             log_to_explore("Exploration complete! Results saved to jules_ui_map.json")

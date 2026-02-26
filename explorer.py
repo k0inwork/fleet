@@ -10,11 +10,11 @@ from hydra_controller import HydraController
 logger = logging.getLogger("JulesExplorer")
 
 class JulesExplorer:
-    def __init__(self, proxy_url: Optional[str] = None, state_path: str = "state.json", log_callback=None):
+    def __init__(self, proxy_url: Optional[str] = None, state_path: str = "state.json", log_callback=None, credentials: Optional[Dict] = None):
         self.proxy_url = proxy_url
         self.state_path = state_path
         self.log = log_callback or logger.info
-        self.controller = HydraController(proxy_url, state_path)
+        self.controller = HydraController(proxy_url, state_path, credentials=credentials)
         self.ui_map = {}
 
     async def explore(self, repo_full_name: Optional[str] = None, max_pages: int = 10):
