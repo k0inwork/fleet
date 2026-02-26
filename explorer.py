@@ -202,6 +202,17 @@ class JulesExplorer:
         return tag
 
     async def _map_current_page(self, page: Page, page_name: str):
+        # Wait for page to be ready
+        try:
+            await page.wait_for_selector("body", timeout=10000)
+            # Try to wait for at least one interactive element to appear
+            await page.wait_for_selector("button, a, input, textarea", timeout=5000)
+        except:
+            pass
+
+        # Additional wait for dynamic SPAs
+        await asyncio.sleep(3)
+
         # Ensure unique page name if title is duplicate
         orig_name = page_name
         counter = 1
@@ -213,9 +224,11 @@ class JulesExplorer:
         safe_name = page_name.replace(' ', '_').replace('(', '').replace(')', '').replace('/', '_').lower()
 
         # 1. Scrape interactive elements with extended metadata
-        interactives = await page.eval_on_selector_all(
-            "button, a, input, textarea, [role='button'], [data-testid]",
-            """
+        interactives = []
+        for retry in range(2):
+            interactives = await page.eval_on_selector_all(
+                "button, a, input, textarea, [role='button'], [data-testid]",
+                """
             elements => elements.map(el => {
                 return {
                     tag: el.tagName,
@@ -234,7 +247,14 @@ class JulesExplorer:
                 }
             })
             """
-        )
+            )
+            if len(interactives) > 0:
+                break
+            if retry == 0:
+                self.log(f"No interactive elements found on {page_name}, retrying in 3s...")
+                await asyncio.sleep(3)
+
+        self.log(f"Found {len(interactives)} interactive elements on {page_name}")
 
         # 2. Capture Accessibility Tree (Optional, might not be supported in all environments)
         ax_tree = None
