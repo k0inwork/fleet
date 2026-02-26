@@ -333,16 +333,23 @@ class HydraController:
 
                 # Click the primary action button (Send/Start)
                 send_btn = page.locator(SELECTORS["start_btn_dashboard"]).first
-                if await send_btn.is_visible(timeout=10000):
+                try:
+                    await send_btn.wait_for(state="visible", timeout=10000)
                     await send_btn.click()
                     logger.info("Clicked 'Send/Start' button to initialize session.")
-                else:
+                except:
+                    logger.warning("Send button not found or visible. Attempting 'Enter' key fallback.")
                     await page.keyboard.press("Enter")
                     logger.info("Pressed 'Enter' to initialize session.")
 
                 # Wait for session initialization
                 logger.info("Waiting for session URL (this can take up to 2 minutes)...")
-                await page.wait_for_url("**/sessions/*", timeout=120000)
+                try:
+                    await page.wait_for_url("**/sessions/*", timeout=120000)
+                except Exception as ue:
+                    logger.error(f"Navigation to new session failed. Final URL: {page.url}")
+                    await self._log_page_state(page, "Session Start Navigation Timeout")
+                    raise ue
                 session_id = page.url.split("/")[-1]
                 logger.info(f"Session created: {session_id}")
                 await self._log_page_state(page, f"Session {session_id} Initialized")
