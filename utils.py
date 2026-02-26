@@ -2,7 +2,9 @@ import os
 import socket
 import requests
 import logging
+import json
 import socks
+from typing import Dict, List, Optional
 
 logger = logging.getLogger("ProxyGuard")
 
@@ -55,3 +57,38 @@ def setup_global_proxy(proxy_url: str):
         # For git and other tools
         proxy_host_port = proxy_url.split('://')[-1]
         os.environ['GIT_PROXY_COMMAND'] = f"nc -X 5 -x {proxy_host_port} %h %p"
+
+def check_jules_login_status(state_path: str = "state.json", proxy_url: Optional[str] = None) -> bool:
+    """Uses cookies from state.json to verify authentication via lightweight requests."""
+    if not os.path.exists(state_path) or os.path.getsize(state_path) == 0:
+        return False
+
+    try:
+        with open(state_path, "r") as f:
+            state = json.load(f)
+
+        session = requests.Session()
+        if proxy_url:
+            session.proxies = {"http": proxy_url, "https": proxy_url}
+
+        # Convert Playwright cookies to requests-compatible cookies
+        for cookie in state.get("cookies", []):
+            session.cookies.set(cookie["name"], cookie["value"], domain=cookie["domain"], path=cookie["path"])
+
+        # Check if we can reach an authenticated endpoint
+        # The Jules main page often redirects or contains different content when logged in
+        # Alternatively, we can check for a common API endpoint or specific text in the HTML
+        response = session.get("https://jules.google.com", timeout=10)
+
+        # Simple heuristic: If we are redirected to accounts.google.com, we are not logged in
+        if "accounts.google.com" in response.url:
+            return False
+
+        # Check for presence of 'New session' text or other authenticated markers
+        if "New session" in response.text or "Sign out" in response.text:
+            return True
+
+        return False
+    except Exception as e:
+        logger.error(f"Failed to check login status: {e}")
+        return False
