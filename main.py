@@ -45,7 +45,7 @@ from textual.reactive import reactive
 
 from context_engine import ContextEngine
 from scheduler import DAGScheduler, TaskStatus
-from utils import setup_global_proxy, check_proxy, check_jules_login_status
+from utils import setup_global_proxy, check_proxy
 
 class Orchestrator:
     def __init__(self, config: dict, log_callback):
@@ -230,19 +230,6 @@ class HydraApp(App):
     #ui-map-tree { width: 40%; border: solid green; }
     #explore-log-container { width: 60%; border: solid blue; }
     #explore-log { height: 1fr; }
-    #login-status {
-        padding: 0 1;
-        margin-left: 2;
-        border: heavy white;
-    }
-    .logged-in {
-        background: green;
-        color: white;
-    }
-    .logged-out {
-        background: red;
-        color: white;
-    }
     """
 
     def compose(self) -> ComposeResult:
@@ -252,9 +239,7 @@ class HydraApp(App):
                 with TabbedContent():
                     with TabPane("Config", id="config-tab"):
                         with Vertical(id="config-form"):
-                            with Horizontal():
-                                yield Label("Configuration", variant="primary")
-                                yield Label("AUTH STATUS: UNKNOWN", id="login-status")
+                            yield Label("Configuration")
                             with Horizontal():
                                 yield Input(placeholder="Gemini API Key", id="api-key", password=True)
                                 yield Button("Test Key", variant="primary", id="test-api-btn")
@@ -335,9 +320,6 @@ class HydraApp(App):
         self.load_ui_map_into_tree()
 
     def update_ui(self):
-        # Update Login Status Flag
-        asyncio.create_task(self.check_auth_status())
-
         # Synchronize session state from file if it changed
         if os.path.exists("state.json"):
             try:
@@ -657,20 +639,6 @@ class HydraApp(App):
         finally:
             self.is_exploring = False
 
-    async def check_auth_status(self):
-        proxy_url = self.query_one("#proxy-url").value
-        is_logged_in = await asyncio.to_thread(check_jules_login_status, "state.json", proxy_url)
-
-        status_label = self.query_one("#login-status")
-        if is_logged_in:
-            status_label.update("AUTH STATUS: LOGGED IN")
-            status_label.remove_class("logged-out")
-            status_label.add_class("logged-in")
-        else:
-            status_label.update("AUTH STATUS: LOGGED OUT")
-            status_label.remove_class("logged-in")
-            status_label.add_class("logged-out")
-
     def load_ui_map_into_tree(self):
         try:
             tree = self.query_one("#ui-map-tree")
@@ -738,8 +706,6 @@ class HydraApp(App):
                 with open("state.json", "r") as f:
                     self.query_one("#session-state").text = f.read()
                 self.save_current_config()
-            # Force immediate auth status update
-            asyncio.create_task(self.check_auth_status())
         except Exception as e:
             self.log_to_ui(f"Login failed or interrupted: {e}")
             self.notify("Login Failed", severity="error")
