@@ -592,6 +592,9 @@ class HydraApp(App):
         log_widget = self.query_one("#explore-log")
         log_widget.clear()
 
+        # Clear existing UI map from tree
+        self.query_one("#ui-map-tree").reset("Jules UI Map")
+
         def log_to_explore(msg):
             timestamp = datetime.now().strftime("%H:%M:%S")
             rich_msg = f"[{timestamp}] {self._make_links(msg)}"
@@ -601,6 +604,14 @@ class HydraApp(App):
             self.log_to_ui(msg)
 
         log_to_explore(f"Starting automated Jules UI exploration (Target Repo: {repo_full_name})...")
+
+        # Optionally archive old map
+        if os.path.exists("jules_ui_map.json"):
+            try:
+                os.rename("jules_ui_map.json", "jules_ui_map.json.old")
+                log_to_explore("Archived previous UI map to jules_ui_map.json.old")
+            except: pass
+
         credentials = {"google_email": google_email, "google_password": google_password}
         explorer = JulesExplorer(proxy_url, log_callback=log_to_explore, credentials=credentials)
         try:

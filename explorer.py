@@ -21,6 +21,7 @@ class JulesExplorer:
         await self.controller.start(headless=True)
         page = await self.controller.context.new_page()
 
+        self.ui_map = {} # Explicitly clear current map
         visited = set()
         to_visit = ["https://jules.google.com"]
         pages_mapped = 0
