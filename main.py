@@ -175,6 +175,8 @@ class LoginScreen(Screen):
             self.app.pop_screen()
 
 class HydraApp(App):
+    is_exploring = reactive(False)
+
     CSS = """
     Screen { layout: vertical; }
     #main-container { height: 1fr; }
@@ -609,6 +611,7 @@ class HydraApp(App):
 
     async def perform_exploration(self):
         from explorer import JulesExplorer
+        self.is_exploring = True
         proxy_url = self.query_one("#proxy-url").value or os.getenv("PROXY_URL")
         repo_full_name = self.query_one("#repo-name").value or os.getenv("REPO_NAME")
         google_email = self.query_one("#google-email").value or os.getenv("GOOGLE_EMAIL")
@@ -651,6 +654,8 @@ class HydraApp(App):
         except Exception as e:
             log_to_explore(f"Exploration failed: {e}")
             self.notify("Exploration Failed", severity="error")
+        finally:
+            self.is_exploring = False
 
     async def check_auth_status(self):
         proxy_url = self.query_one("#proxy-url").value
@@ -671,38 +676,48 @@ class HydraApp(App):
             tree = self.query_one("#ui-map-tree")
         except: return
 
-        tree.reset("Jules UI Map")
-        if os.path.exists("jules_ui_map.json"):
-            try:
-                with open("jules_ui_map.json", "r") as f:
-                    ui_map = json.load(f)
-                    for page_name, data in ui_map.items():
-                        page_node = tree.root.add(f"📄 {page_name}")
-                        page_node.add(f"🔗 URL: {data['url']}")
-                        page_node.add(f"🏷️ Title: {data['title']}")
-                        elements_node = page_node.add(f"🏗️ Elements ({len(data['elements'])})")
-                        # Add link to screenshot if exists
-                        safe_name = page_name.replace(' ', '_').lower()
-                        screenshot_file = f"explore_{safe_name}.png"
-                        if os.path.exists(screenshot_file):
-                            abs_shot = os.path.abspath(screenshot_file)
-                            page_node.add(f"📸 [link=file://{abs_shot}]View Screenshot[/link]")
+        if not os.path.exists("jules_ui_map.json"):
+            return
 
-                        if "dom_snapshot" in data and os.path.exists(data["dom_snapshot"]):
-                            abs_dom = os.path.abspath(data["dom_snapshot"])
-                            page_node.add(f"🌐 [link=file://{abs_dom}]View DOM Snapshot[/link]")
+        try:
+            with open("jules_ui_map.json", "r") as f:
+                ui_map = json.load(f)
 
-                        for el in data["elements"]:
-                            label = f"{el['tag']}: {el['text'][:30]}"
-                            if el['placeholder']: label += f" (Ph: {el['placeholder']})"
-                            el_node = elements_node.add(label)
-                            if el['id']: el_node.add(f"ID: {el['id']}")
-                            if el['aria_label']: el_node.add(f"Aria: {el['aria_label']}")
-                            if el['classes']: el_node.add(f"Classes: {el['classes']}")
-                        page_node.expand()
-                tree.root.expand()
-            except Exception as e:
-                self.log_to_ui(f"Failed to load UI map into tree: {e}")
+            # Simple check: if number of pages is same, don't rebuild everything
+            # This is a bit naive but prevents flickering and collapsing nodes constantly
+            if hasattr(self, "_last_map_count") and self._last_map_count == len(ui_map):
+                return
+            self._last_map_count = len(ui_map)
+
+            tree.reset("Jules UI Map")
+            for page_name, data in ui_map.items():
+                page_node = tree.root.add(f"📄 {page_name}")
+                page_node.add(f"🔗 URL: {data['url']}")
+                page_node.add(f"🏷️ Title: {data['title']}")
+                elements_node = page_node.add(f"🏗️ Elements ({len(data['elements'])})")
+                # Add link to screenshot if exists
+                safe_name = page_name.replace(' ', '_').replace('(', '').replace(')', '').replace('/', '_').lower()
+                screenshot_file = f"explore_{safe_name}.png"
+                if os.path.exists(screenshot_file):
+                    abs_shot = os.path.abspath(screenshot_file)
+                    page_node.add(f"📸 [link=file://{abs_shot}]View Screenshot[/link]")
+
+                if "dom_snapshot" in data and os.path.exists(data["dom_snapshot"]):
+                    abs_dom = os.path.abspath(data["dom_snapshot"])
+                    page_node.add(f"🌐 [link=file://{abs_dom}]View DOM Snapshot[/link]")
+
+                for el in data["elements"]:
+                    label = f"{el['tag']}: {el['text'][:30]}"
+                    if el['placeholder']: label += f" (Ph: {el['placeholder']})"
+                    el_node = elements_node.add(label)
+                    if el['id']: el_node.add(f"ID: {el['id']}")
+                    if el['aria_label']: el_node.add(f"Aria: {el['aria_label']}")
+                    if el['classes']: el_node.add(f"Classes: {el['classes']}")
+                page_node.expand()
+            tree.root.expand()
+        except Exception as e:
+            # self.log_to_ui(f"Failed to load UI map into tree: {e}")
+            pass
 
     async def perform_login(self):
         from hydra_controller import HydraController
@@ -723,6 +738,8 @@ class HydraApp(App):
                 with open("state.json", "r") as f:
                     self.query_one("#session-state").text = f.read()
                 self.save_current_config()
+            # Force immediate auth status update
+            asyncio.create_task(self.check_auth_status())
         except Exception as e:
             self.log_to_ui(f"Login failed or interrupted: {e}")
             self.notify("Login Failed", severity="error")

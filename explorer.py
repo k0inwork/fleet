@@ -56,6 +56,10 @@ class JulesExplorer:
                     visited.add(url)
                     pages_mapped += 1
 
+                    # Live save for UI updates
+                    with open("jules_ui_map.json", "w") as f:
+                        json.dump(self.ui_map, f, indent=2)
+
                     # Extract internal links
                     links = await page.eval_on_selector_all(
                         "a[href]",
