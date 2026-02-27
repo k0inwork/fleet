@@ -5,7 +5,6 @@ from typing import Dict, List, Set, Optional
 from pydantic import BaseModel
 from brain import Task, TaskGraph
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Scheduler")
 
 class TaskStatus(str, Enum):

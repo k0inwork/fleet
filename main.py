@@ -4,6 +4,16 @@ import json
 import traceback
 import socket
 
+import logging
+
+# Configure logging to file to avoid messing up TUI
+logging.basicConfig(
+    level=logging.INFO,
+    filename='hydra.log',
+    filemode='a',
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
 # Try to setup proxy as early as possible before any other imports
 if os.path.exists("config.json"):
     try:
@@ -16,7 +26,7 @@ if os.path.exists("config.json"):
                 host = host_port.split(":")[0]
                 port = int(host_port.split(":")[1])
                 socks.set_default_proxy(socks.SOCKS5, host, port)
-                socks.monkey_patch()
+                socket.socket = socks.socksocket
                 os.environ['http_proxy'] = p_url
                 os.environ['https_proxy'] = p_url
                 os.environ['all_proxy'] = p_url
@@ -30,7 +40,7 @@ from typing import Dict, List, Optional
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Log, Label, Input, Button, TabbedContent, TabPane, TextArea
+from textual.widgets import Header, Footer, Static, Log, Label, Input, Button, TabbedContent, TabPane, TextArea, Tree
 from textual.reactive import reactive
 
 from context_engine import ContextEngine
@@ -58,7 +68,11 @@ class Orchestrator:
             except Exception as e:
                 self.log(f"Failed to parse manual session state JSON: {e}")
 
-        self.hydra = HydraController(config.get("proxy_url"))
+        credentials = {
+            "google_email": config.get("google_email"),
+            "google_password": config.get("google_password")
+        }
+        self.hydra = HydraController(config.get("proxy_url"), credentials=credentials)
         self.verifier = GitHubVerifier(config["github_token"], config["repo_full_name"], config.get("proxy_url"))
         self.scheduler = None
         self.is_running = False
@@ -115,14 +129,17 @@ class Orchestrator:
         task_node = self.scheduler.nodes[task_id]
         self.log(f"Dispatching task {task_id} to Hydra...")
 
-        # Create or Reuse Session
-        session_id = await self.hydra.create_session(self.config["repo_full_name"], task_node.task.branch)
-        if session_id:
-            self.scheduler.mark_running(task_id, session_id)
-            await self.hydra.send_message(session_id, task_node.task.instruction)
-            self.log(f"Task {task_id} is now running in session {session_id}")
-        else:
-            self.log(f"Failed to create session for task {task_id}")
+        try:
+            # Create or Reuse Session
+            session_id = await self.hydra.create_session(self.config["repo_full_name"], task_node.task.branch)
+            if session_id:
+                self.scheduler.mark_running(task_id, session_id)
+                await self.hydra.send_message(session_id, task_node.task.instruction)
+                self.log(f"Task {task_id} is now running in session {session_id}")
+            else:
+                self.log(f"Failed to create session for task {task_id}: Unknown error")
+        except Exception as e:
+            self.log(f"Failed to create session for task {task_id}: {e}")
 
     async def verify_active_tasks(self):
         for task_id, node in self.scheduler.nodes.items():
@@ -158,6 +175,8 @@ class LoginScreen(Screen):
             self.app.pop_screen()
 
 class HydraApp(App):
+    is_exploring = reactive(False)
+
     CSS = """
     Screen { layout: vertical; }
     #main-container { height: 1fr; }
@@ -182,15 +201,35 @@ class HydraApp(App):
     }
     #goal-container {
         border: solid yellow;
-        height: auto;
+        height: 15;
         padding: 0 1;
+        transition: height 200ms;
     }
-    .collapsed {
+    #goal-container.collapsed {
         height: 4;
+    }
+    #goal-container.expanded {
+        height: 25;
+    }
+    #dag-tree {
+        display: none;
+        height: 1fr;
+        border: blue;
+        margin: 1 0;
+    }
+    .show-tree #dag-tree {
+        display: block;
+    }
+    .show-tree #user-goal {
+        display: none;
     }
     #goal-header {
         height: auto;
     }
+    #explore-container { height: 1fr; }
+    #ui-map-tree { width: 40%; border: solid green; }
+    #explore-log-container { width: 60%; border: solid blue; }
+    #explore-log { height: 1fr; }
     """
 
     def compose(self) -> ComposeResult:
@@ -214,19 +253,34 @@ class HydraApp(App):
                                 yield Input(placeholder="Proxy URL (socks5://...)", id="proxy-url")
                                 yield Button("Test Proxy", variant="primary", id="test-proxy-btn")
 
+                            with Horizontal():
+                                yield Input(placeholder="Google Email", id="google-email")
+                                yield Input(placeholder="Google Password", id="google-password", password=True)
+
                             yield Label("Playwright Session State (JSON)")
                             yield Label("This stores your login cookies. It is filled automatically after 'Login to Google'.", variant="dim")
                             yield TextArea(id="session-state", classes="collapsed")
 
                             with Horizontal():
                                 yield Button("Login to Google", id="login-btn")
+                    with TabPane("Explore", id="explore-tab"):
+                        with Vertical():
+                            with Horizontal():
+                                yield Button("Start Automated Discovery", id="explore-btn", variant="success")
+                                yield Label("Discovered UI Map", classes="panel-title")
+                            with Horizontal(id="explore-container"):
+                                yield Tree("Jules UI Map", id="ui-map-tree")
+                                with Vertical(id="explore-log-container"):
+                                    yield Label("Exploration Logs")
+                                    yield Log(id="explore-log")
                     with TabPane("Monitor", id="monitor-tab"):
                         with Vertical(id="goal-header"):
                             with Vertical(id="goal-container", classes="collapsed"):
                                 with Horizontal():
-                                    yield Label("SYSTEM GOAL")
+                                    yield Label("SYSTEM GOAL / DAG")
                                     yield Button("Toggle Size", id="toggle-goal-btn")
                                 yield TextArea(id="user-goal")
+                                yield Tree("Task Graph", id="dag-tree")
                                 yield Button("START HYDRA FLEET", variant="success", id="start-btn")
                         with Horizontal(id="main-container"):
                             with Vertical(id="left-panel"):
@@ -255,19 +309,34 @@ class HydraApp(App):
                     self.query_one("#gh-token").value = config.get("github_token", "")
                     self.query_one("#repo-name").value = config.get("repo_full_name", "")
                     self.query_one("#proxy-url").value = config.get("proxy_url", "")
+                    self.query_one("#google-email").value = config.get("google_email", "")
+                    self.query_one("#google-password").value = config.get("google_password", "")
                     if "session_state" in config:
                         self.query_one("#session-state").text = config["session_state"]
             except:
                 pass
 
+        # Load existing UI Map
+        self.load_ui_map_into_tree()
+
     def update_ui(self):
+        # Synchronize session state from file if it changed
+        if os.path.exists("state.json"):
+            try:
+                with open("state.json", "r") as f:
+                    new_state = f.read()
+                    text_area = self.query_one("#session-state")
+                    if text_area.text != new_state:
+                        text_area.text = new_state
+                        # self.log_to_ui("Synchronized session state from background process.")
+            except: pass
+
         if hasattr(self, "orchestrator"):
             # Update Overall Status
             status_text = "Running" if self.orchestrator.is_running else "Idle / Finished"
-            self.query_one(Header).walk_children() # Header doesn't easily let us set sub-text without more work
 
             if self.orchestrator.scheduler:
-                # Update Task List
+                # Update Task List (Left Panel)
                 task_container = self.query_one("#task-list")
                 status_map = self.orchestrator.scheduler.get_all_status()
 
@@ -281,22 +350,111 @@ class HydraApp(App):
                     else:
                         task_container.mount(Label(f"{task_id}: {status}", id=widget_id))
 
+                # Update DAG Tree
+                self.update_dag_tree(status_map)
+
             # Update Fleet Status
             for i, (sid, session) in enumerate(self.orchestrator.hydra.sessions.items(), 1):
                 if i <= 3:
                     self.query_one(f"#slot-{i}").update(f"Slot {i}: {sid} ({session.branch})")
 
+    def update_dag_tree(self, status_map: Dict[str, str]):
+        tree = self.query_one("#dag-tree")
+
+        # If tree is empty but we have tasks, initialize it
+        try:
+            root = tree.root
+            if not root.children and self.orchestrator.scheduler.nodes:
+                self.build_initial_tree(tree)
+        except:
+            if self.orchestrator.scheduler.nodes:
+                self.build_initial_tree(tree)
+
+        # Update node labels with current status
+        def update_node(node):
+            task_id = node.data
+            if task_id in status_map:
+                status = status_map[task_id]
+                # Add emoji for status
+                emoji = "⏳"
+                if status == "ready": emoji = "✅"
+                if status == "running": emoji = "🚀"
+                if status == "completed": emoji = "🏁"
+                if status == "failed": emoji = "❌"
+                if status == "conflicted": emoji = "⚠️"
+
+                node.label = f"{task_id} [{emoji} {status}]"
+
+            for child in node.children:
+                update_node(child)
+
+        try:
+            for child in tree.root.children:
+                update_node(child)
+        except:
+            pass
+
+    def build_initial_tree(self, tree: Tree):
+        # Reset the tree to a new root
+        tree.reset("Task Graph")
+
+        nodes = self.orchestrator.scheduler.nodes
+        # Find roots (tasks that no one else depends on, OR tasks with no dependencies)
+        # Actually, in a tree view of a DAG, we can show roots as tasks with NO dependencies.
+        # Then children are tasks that depend on them.
+
+        task_to_node = {}
+
+        # First, find all tasks with no dependencies
+        roots = [t_id for t_id, node in nodes.items() if not node.task.dependencies]
+
+        added_tasks = set()
+
+        def add_task_recursive(task_id, parent_node):
+            if task_id in added_tasks: return # Avoid infinite recursion just in case
+            added_tasks.add(task_id)
+
+            status = nodes[task_id].status
+            node = parent_node.add(f"{task_id} [{status}]", data=task_id)
+            node.expand()
+
+            # Find tasks that depend ON this task
+            dependents = [t_id for t_id, n in nodes.items() if task_id in n.task.dependencies]
+            for dep_id in dependents:
+                add_task_recursive(dep_id, node)
+
+        for root_id in roots:
+            add_task_recursive(root_id, tree.root)
+
+        tree.root.expand()
+
+    def _make_links(self, text: str) -> str:
+        """Helper to wrap file paths in Rich links."""
+        import re
+        # Pattern to find potential file paths (extensions like .png, .log, .json, .md, .txt)
+        # Matches paths starting with / or ./ or just filename with extension
+        pattern = r'(\b[\w\/\.-]+\.(?:png|log|json|md|txt)\b)'
+
+        def replace(match):
+            path = match.group(1)
+            abs_path = os.path.abspath(path)
+            return f"[link=file://{abs_path}]{path}[/link]"
+
+        return re.sub(pattern, replace, text)
+
     def log_to_ui(self, message: str):
         timestamp = datetime.now().strftime("%H:%M:%S")
-        formatted_msg = f"[{timestamp}] {message}"
+        plain_msg = f"[{timestamp}] {message}"
+        rich_msg = f"[{timestamp}] {self._make_links(message)}"
+
         try:
-            self.query_one("#main-log").write_line(formatted_msg)
+            self.query_one("#main-log").write_line(rich_msg)
         except:
             pass # App might not be fully mounted
 
-        # Also log to file
+        # Also log to file (plain text)
         with open("hydra.log", "a") as f:
-            f.write(formatted_msg + "\n")
+            f.write(plain_msg + "\n")
 
     def save_current_config(self):
         config = {
@@ -304,6 +462,8 @@ class HydraApp(App):
             "github_token": self.query_one("#gh-token").value,
             "repo_full_name": self.query_one("#repo-name").value,
             "proxy_url": self.query_one("#proxy-url").value,
+            "google_email": self.query_one("#google-email").value,
+            "google_password": self.query_one("#google-password").value,
             "session_state": self.query_one("#session-state").text,
             "repo_path": "."
         }
@@ -323,7 +483,12 @@ class HydraApp(App):
             container = self.query_one("#goal-container")
             if container.has_class("collapsed"):
                 container.remove_class("collapsed")
+                container.add_class("expanded")
+            elif container.has_class("expanded"):
+                container.remove_class("expanded")
+                container.add_class("collapsed")
             else:
+                # Default toggle if neither class is present
                 container.add_class("collapsed")
 
         elif event.button.id == "test-api-btn":
@@ -418,9 +583,109 @@ class HydraApp(App):
             self.save_current_config()
             asyncio.create_task(self.perform_login())
 
+        elif event.button.id == "explore-btn":
+            self.save_current_config()
+            asyncio.create_task(self.perform_exploration())
+
         elif event.button.id == "start-btn":
             self.save_current_config()
             asyncio.create_task(self.handle_start())
+
+    async def perform_exploration(self):
+        from explorer import JulesExplorer
+        self.is_exploring = True
+        proxy_url = self.query_one("#proxy-url").value or os.getenv("PROXY_URL")
+        repo_full_name = self.query_one("#repo-name").value or os.getenv("REPO_NAME")
+        google_email = self.query_one("#google-email").value or os.getenv("GOOGLE_EMAIL")
+        google_password = self.query_one("#google-password").value or os.getenv("GOOGLE_PASSWORD")
+
+        if proxy_url and "://" not in proxy_url:
+            proxy_url = f"socks5://{proxy_url}"
+
+        self.query_one(TabbedContent).active = "explore-tab"
+        log_widget = self.query_one("#explore-log")
+        log_widget.clear()
+
+        # Clear existing UI map from tree
+        self.query_one("#ui-map-tree").reset("Jules UI Map")
+
+        def log_to_explore(msg):
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            rich_msg = f"[{timestamp}] {self._make_links(msg)}"
+            try:
+                log_widget.write_line(rich_msg)
+            except: pass
+            self.log_to_ui(msg)
+
+        log_to_explore(f"Starting automated Jules UI exploration (Target Repo: {repo_full_name})...")
+
+        # Optionally archive old map
+        if os.path.exists("jules_ui_map.json"):
+            try:
+                os.rename("jules_ui_map.json", "jules_ui_map.json.old")
+                log_to_explore("Archived previous UI map to jules_ui_map.json.old")
+            except: pass
+
+        credentials = {"google_email": google_email, "google_password": google_password}
+        explorer = JulesExplorer(proxy_url, log_callback=log_to_explore, credentials=credentials)
+        try:
+            await explorer.explore(repo_full_name=repo_full_name)
+            log_to_explore("Exploration complete! Results saved to jules_ui_map.json")
+            self.notify("Jules UI Exploration Complete!")
+            self.load_ui_map_into_tree()
+        except Exception as e:
+            log_to_explore(f"Exploration failed: {e}")
+            self.notify("Exploration Failed", severity="error")
+        finally:
+            self.is_exploring = False
+
+    def load_ui_map_into_tree(self):
+        try:
+            tree = self.query_one("#ui-map-tree")
+        except: return
+
+        if not os.path.exists("jules_ui_map.json"):
+            return
+
+        try:
+            with open("jules_ui_map.json", "r") as f:
+                ui_map = json.load(f)
+
+            # Simple check: if number of pages is same, don't rebuild everything
+            # This is a bit naive but prevents flickering and collapsing nodes constantly
+            if hasattr(self, "_last_map_count") and self._last_map_count == len(ui_map):
+                return
+            self._last_map_count = len(ui_map)
+
+            tree.reset("Jules UI Map")
+            for page_name, data in ui_map.items():
+                page_node = tree.root.add(f"📄 {page_name}")
+                page_node.add(f"🔗 URL: {data['url']}")
+                page_node.add(f"🏷️ Title: {data['title']}")
+                elements_node = page_node.add(f"🏗️ Elements ({len(data['elements'])})")
+                # Add link to screenshot if exists
+                safe_name = page_name.replace(' ', '_').replace('(', '').replace(')', '').replace('/', '_').lower()
+                screenshot_file = f"explore_{safe_name}.png"
+                if os.path.exists(screenshot_file):
+                    abs_shot = os.path.abspath(screenshot_file)
+                    page_node.add(f"📸 [link=file://{abs_shot}]View Screenshot[/link]")
+
+                if "dom_snapshot" in data and os.path.exists(data["dom_snapshot"]):
+                    abs_dom = os.path.abspath(data["dom_snapshot"])
+                    page_node.add(f"🌐 [link=file://{abs_dom}]View DOM Snapshot[/link]")
+
+                for el in data["elements"]:
+                    label = f"{el['tag']}: {el['text'][:30]}"
+                    if el['placeholder']: label += f" (Ph: {el['placeholder']})"
+                    el_node = elements_node.add(label)
+                    if el['id']: el_node.add(f"ID: {el['id']}")
+                    if el['aria_label']: el_node.add(f"Aria: {el['aria_label']}")
+                    if el['classes']: el_node.add(f"Classes: {el['classes']}")
+                page_node.expand()
+            tree.root.expand()
+        except Exception as e:
+            # self.log_to_ui(f"Failed to load UI map into tree: {e}")
+            pass
 
     async def perform_login(self):
         from hydra_controller import HydraController
@@ -449,6 +714,16 @@ class HydraApp(App):
 
     async def handle_start(self):
         try:
+            # Show the tree and expand the container
+            container = self.query_one("#goal-container")
+            container.add_class("show-tree")
+            container.remove_class("collapsed")
+            container.add_class("expanded")
+
+            # Reset the tree
+            tree = self.query_one("#dag-tree")
+            tree.reset("Task Graph")
+
             config = {
                 "gemini_api_key": self.query_one("#api-key").value or os.getenv("GEMINI_API_KEY"),
                 "github_token": self.query_one("#gh-token").value or os.getenv("GITHUB_TOKEN"),

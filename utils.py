@@ -2,7 +2,9 @@ import os
 import socket
 import requests
 import logging
+import json
 import socks
+from typing import Dict, List, Optional
 
 logger = logging.getLogger("ProxyGuard")
 
@@ -47,8 +49,8 @@ def setup_global_proxy(proxy_url: str):
 
                 # Global monkey-patch for SOCKS5
                 socks.set_default_proxy(socks.SOCKS5, host, port)
-                socks.monkey_patch()
-                logger.info(f"Global SOCKS5 proxy set to {host}:{port} via monkey_patch")
+                socket.socket = socks.socksocket
+                logger.info(f"Global SOCKS5 proxy set to {host}:{port} via socket.socket override")
             except Exception as e:
                 logger.error(f"Failed to set global SOCKS5 proxy: {e}")
 

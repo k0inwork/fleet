@@ -51,10 +51,16 @@ Output a JSON object that strictly follows this schema:
 }}
 
 Ensure that:
-1. Tasks are granular enough to be completed in a single Jules session.
-2. Dependencies are correctly mapped (e.g., a feature depends on its required base components).
-3. Branch names are unique and descriptive.
-4. Total tasks should not exceed 15 (daily limit), but keep it efficient.
+1. **Parallelism is Priority**: Maximize parallel execution by identifying independent tracks of work (e.g., Backend implementation, Frontend UI development, and Documentation/Test suites can often run concurrently). Aim for up to 3 parallel tasks at any given time.
+2. **Merge Sequential Overhead**: If tasks are strictly sequential and depend on each other, merge them into a single, comprehensive task. Do not split sequential work unless there is a clear benefit to doing so (e.g., hitting a very large context limit).
+3. **Substantial Tasks**: Each task should be high-impact. Avoid trivial nodes like "setup environment". Combine setup with the first meaningful implementation phase.
+4. **Agent Autonomy**: Jules agents are expert engineers; they can handle complex, multi-step workflows in a single session. Trust their ability to execute broad instructions.
+5. **Dependencies**: Map dependencies strictly. A task should only depend on others if it physically cannot start without their completed code (e.g., Frontend depends on API contract/models).
+6. **Graph Size**: Aim for a lean, efficient DAG of 3-6 substantial tasks.
+7. **Test-First Architecture**:
+   - **Mandatory Quality Architect Task**: Always include a primary task (e.g., `test_planning`) that creates a comprehensive `TEST_PLAN.md`. This document must define detailed GUI checks (Playwright), Backend API validations, and End-to-End integration scenarios.
+   - **Implementation Dependencies**: All implementation tasks must depend on the `test_planning` task.
+   - **Test Execution**: Instructions for implementation tasks must explicitly require writing and passing the relevant tests defined in `TEST_PLAN.md` before completion.
 
 Response must be ONLY the JSON object.
 """
