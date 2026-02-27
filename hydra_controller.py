@@ -284,8 +284,8 @@ class HydraController:
                         await repo_item.click()
                         logger.info(f"Legacy flow clicked on repo item: {repo_full_name}")
                     except Exception:
-                    logger.warning(f"Repository {repo_full_name} not found in search results.")
-                    await self._log_page_state(page, "Repo Not Found In Search")
+                        logger.warning(f"Repository {repo_full_name} not found in search results.")
+                        await self._log_page_state(page, "Repo Not Found In Search")
 
                     # Try to find 'Connect' or 'Add' buttons
                     connect_btns = page.locator("button:has-text('Connect'), button:has-text('Add'), :text('Connect to GitHub')")
