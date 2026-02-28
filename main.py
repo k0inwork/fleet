@@ -45,7 +45,7 @@ from textual.reactive import reactive
 
 from context_engine import ContextEngine
 from scheduler import DAGScheduler, TaskStatus
-from utils import setup_global_proxy, check_proxy
+from utils import setup_global_proxy, check_proxy, is_jules_installed, install_jules_cli
 
 class Orchestrator:
     def __init__(self, config: dict, log_callback):
@@ -257,12 +257,15 @@ class HydraApp(App):
                                 yield Input(placeholder="Google Email", id="google-email")
                                 yield Input(placeholder="Google Password", id="google-password", password=True)
 
-                            yield Label("Playwright Session State (JSON)")
-                            yield Label("This stores your login cookies. It is filled automatically after 'Login to Google'.", variant="dim")
-                            yield TextArea(id="session-state", classes="collapsed")
-
+                            yield Label("Jules CLI Management")
+                            yield Label("Ensure Jules CLI is installed and authenticated.", variant="dim")
                             with Horizontal():
-                                yield Button("Login to Google", id="login-btn")
+                                yield Button("Install Jules CLI", id="install-cli-btn", variant="primary")
+                                yield Button("Login via CLI", id="login-btn", variant="success")
+
+                            yield Label("Playwright Session State (JSON)")
+                            yield Label("Used by the explorer (legacy). CLI uses its own auth state.", variant="dim")
+                            yield TextArea(id="session-state", classes="collapsed")
                     with TabPane("Explore", id="explore-tab"):
                         with Vertical():
                             with Horizontal():
@@ -579,6 +582,10 @@ class HydraApp(App):
                 self.notify("Proxy connection failed!", severity="error")
                 self.log_to_ui("SOCKS5 proxy validation failed. Check if the proxy server is running and the URL is correct.")
 
+        elif event.button.id == "install-cli-btn":
+            self.save_current_config()
+            asyncio.create_task(self.perform_cli_install())
+
         elif event.button.id == "login-btn":
             self.save_current_config()
             asyncio.create_task(self.perform_login())
@@ -687,30 +694,34 @@ class HydraApp(App):
             # self.log_to_ui(f"Failed to load UI map into tree: {e}")
             pass
 
+    async def perform_cli_install(self):
+        proxy_url = self.query_one("#proxy-url").value or os.getenv("PROXY_URL")
+        self.log_to_ui("Installing Jules CLI...")
+        success, msg = await install_jules_cli(proxy_url)
+        if success:
+            self.log_to_ui("Jules CLI installed successfully!")
+            self.notify("CLI Installed!")
+        else:
+            self.log_to_ui(f"Jules CLI installation failed: {msg}")
+            self.notify("CLI Installation Failed", severity="error")
+
     async def perform_login(self):
         from hydra_controller import HydraController
         proxy_url = self.query_one("#proxy-url").value or os.getenv("PROXY_URL")
         if proxy_url and "://" not in proxy_url:
             proxy_url = f"socks5://{proxy_url}"
 
-        self.log_to_ui("Initializing browser for manual Google Login...")
+        self.log_to_ui("Triggering 'jules login'...")
         self.temp_hydra = HydraController(proxy_url)
         try:
-            await self.temp_hydra.start(headless=False)
-            self.push_screen(LoginScreen())
+            # jules login opens a browser.
+            # We don't need a custom screen anymore, the user will interact with the browser directly.
             await self.temp_hydra.login()
-            self.log_to_ui("Google Login detected successfully! Session state updated.")
-            self.notify("Google Login Successful!")
-            # Automatically update the session state TextArea with the new content
-            if os.path.exists("state.json"):
-                with open("state.json", "r") as f:
-                    self.query_one("#session-state").text = f.read()
-                self.save_current_config()
+            self.log_to_ui("Login command completed.")
+            self.notify("Jules CLI Login Triggered")
         except Exception as e:
-            self.log_to_ui(f"Login failed or interrupted: {e}")
+            self.log_to_ui(f"Login failed: {e}")
             self.notify("Login Failed", severity="error")
-            if hasattr(self, "temp_hydra"):
-                await self.temp_hydra.stop()
 
     async def handle_start(self):
         try:
