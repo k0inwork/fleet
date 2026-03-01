@@ -132,14 +132,17 @@ class Orchestrator:
         self.log(f"Dispatching task {task_id} to Hydra...")
 
         try:
-            # Create or Reuse Session
-            session_id = await self.hydra.create_session(self.config["repo_full_name"], task_node.task.branch)
+            # Create or Reuse Session - Pass instruction directly for CLI/API-based creation
+            session_id = await self.hydra.create_session(
+                self.config["repo_full_name"],
+                task_node.task.branch,
+                instruction=task_node.task.instruction
+            )
             if session_id:
                 self.scheduler.mark_running(task_id, session_id)
-                await self.hydra.send_message(session_id, task_node.task.instruction)
                 self.log(f"Task {task_id} is now running in session {session_id}")
             else:
-                self.log(f"Failed to create session for task {task_id}: Unknown error")
+                self.log(f"Failed to create session for task {task_id}. Check hydra.log for details.")
         except Exception as e:
             self.log(f"Failed to create session for task {task_id}: {e}")
 
@@ -302,9 +305,15 @@ class HydraApp(App):
                             with Vertical(id="center-panel"):
                                 yield Label("Hydra Fleet", classes="panel-title")
                                 with Vertical(id="fleet-status"):
-                                    yield Static("Slot 1: Idle", id="slot-1")
-                                    yield Static("Slot 2: Idle", id="slot-2")
-                                    yield Static("Slot 3: Idle", id="slot-3")
+                                    with Horizontal():
+                                        yield Static("Slot 1: Idle", id="slot-1")
+                                        yield Button("Close", id="close-slot-1")
+                                    with Horizontal():
+                                        yield Static("Slot 2: Idle", id="slot-2")
+                                        yield Button("Close", id="close-slot-2")
+                                    with Horizontal():
+                                        yield Static("Slot 3: Idle", id="slot-3")
+                                        yield Button("Close", id="close-slot-3")
             with Vertical(id="global-logs"):
                 yield Label("Global Logs (also in hydra.log)", classes="panel-title")
                 yield Log(id="main-log")
@@ -632,6 +641,10 @@ class HydraApp(App):
             self.save_current_config()
             asyncio.create_task(self.handle_start())
 
+        elif event.button.id.startswith("close-slot-"):
+            slot_idx = int(event.button.id.split("-")[-1])
+            asyncio.create_task(self.close_slot(slot_idx))
+
     async def perform_exploration(self):
         from explorer import JulesExplorer
         self.is_exploring = True
@@ -756,6 +769,15 @@ class HydraApp(App):
         except Exception as e:
             self.log_to_ui(f"Login failed: {e}")
             self.notify("Login Failed", severity="error")
+
+    async def close_slot(self, slot_idx: int):
+        if hasattr(self, "orchestrator"):
+            sessions = list(self.orchestrator.hydra.sessions.keys())
+            if len(sessions) >= slot_idx:
+                sid = sessions[slot_idx - 1]
+                self.log_to_ui(f"Manually closing session {sid}...")
+                await self.orchestrator.hydra.archive_session(sid)
+                self.notify(f"Session {sid} closed.")
 
     async def handle_start(self):
         try:

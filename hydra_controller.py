@@ -173,6 +173,10 @@ class HydraController:
                     session_id = match.group(1)
                     self.sessions[session_id] = JulesSession(session_id, repo_full_name, "running")
                     return session_id
+                else:
+                    logger.error(f"Could not parse session ID from CLI output. Full output: {output}")
+            else:
+                logger.error(f"CLI session creation failed (Code {result.returncode}). Error: {result.stderr}")
             return None
         except Exception as e:
             logger.error(f"Error creating session via CLI: {e}")
