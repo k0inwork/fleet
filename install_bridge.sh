@@ -32,21 +32,27 @@ async def firebase_put(path, data):
     async with httpx.AsyncClient() as client:
         url = f"{FIREBASE_URL}/{path}.json"
         response = await client.put(url, json=data)
-        if response.status_code == 401: return {"error": "Unauthorized"}; response.raise_for_status()
+        if response.status_code == 401:
+            return {"error": "Unauthorized", "url": url}
+        response.raise_for_status()
         return response.json()
 
 async def firebase_post(path, data):
     async with httpx.AsyncClient() as client:
         url = f"{FIREBASE_URL}/{path}.json"
         response = await client.post(url, json=data)
-        if response.status_code == 401: return {"error": "Unauthorized"}; response.raise_for_status()
+        if response.status_code == 401:
+            return {"error": "Unauthorized", "url": url}
+        response.raise_for_status()
         return response.json()
 
 async def firebase_get(path):
     async with httpx.AsyncClient() as client:
         url = f"{FIREBASE_URL}/{path}.json"
         response = await client.get(url)
-        if response.status_code == 401: return {"error": "Unauthorized"}; response.raise_for_status()
+        if response.status_code == 401:
+            return None
+        response.raise_for_status()
         return response.json()
 
 @mcp.tool()
@@ -70,15 +76,11 @@ async def wait_for_instruction() -> dict:
     """
     Wait for an instruction from the Hydra controller.
     """
-    print(f"Waiting for instruction for session {SESSION_ID}...")
-    await firebase_put(f"sessions/{SESSION_ID}/command", None)
-
     while True:
         command = await firebase_get(f"sessions/{SESSION_ID}/command")
         if command:
-            await firebase_put(f"sessions/{SESSION_ID}/command", None)
             return command
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
 @mcp.tool()
 async def initialize_session(repo: str, branch: str) -> str:

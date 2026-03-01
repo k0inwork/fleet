@@ -7,7 +7,7 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 
 # Firebase Config
-FIREBASE_URL = "https://channel1-2792f-default-rtdb.firebaseio.com"
+FIREBASE_URL = "http://localhost:8888"
 
 # Session ID
 SESSION_ID = os.getenv("JULES_SESSION_ID", str(uuid.uuid4()))
