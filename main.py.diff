@@ -1,0 +1,149 @@
+<<<<<<< SEARCH
+                    with TabPane("Monitor", id="monitor-tab"):
+                        with Vertical(id="goal-header"):
+                            with Vertical(id="goal-container", classes="collapsed"):
+                                with Horizontal():
+                                    yield Label("SYSTEM GOAL")
+                                    yield Button("Toggle Size", id="toggle-goal-btn")
+                                yield TextArea(id="user-goal")
+                                yield Button("START HYDRA FLEET", variant="success", id="start-btn")
+                        with Horizontal(id="main-container"):
+                            with Vertical(id="left-panel"):
+                                yield Label("Tasks", classes="panel-title")
+                                yield Container(id="task-list")
+                            with Vertical(id="center-panel"):
+                                yield Label("Hydra Fleet", classes="panel-title")
+                                with Vertical(id="fleet-status"):
+                                    yield Static("Slot 1: Idle", id="slot-1")
+                                    yield Static("Slot 2: Idle", id="slot-2")
+                                    yield Static("Slot 3: Idle", id="slot-3")
+=======
+                    with TabPane("Monitor", id="monitor-tab"):
+                        with Vertical(id="goal-header"):
+                            with Vertical(id="goal-container", classes="collapsed"):
+                                with Horizontal():
+                                    yield Label("SYSTEM GOAL")
+                                    yield Button("Toggle Size", id="toggle-goal-btn")
+                                yield TextArea(id="user-goal")
+                                yield Button("START HYDRA FLEET", variant="success", id="start-btn")
+                        with Horizontal(id="main-container"):
+                            with Vertical(id="left-panel"):
+                                yield Label("Tasks", classes="panel-title")
+                                yield Container(id="task-list")
+                            with Vertical(id="center-panel"):
+                                yield Label("Hydra Fleet", classes="panel-title")
+                                with Vertical(id="fleet-status"):
+                                    yield Static("Slot 1: Idle", id="slot-1")
+                                    yield Static("Slot 2: Idle", id="slot-2")
+                                    yield Static("Slot 3: Idle", id="slot-3")
+                    with TabPane("Bridge Control", id="bridge-tab"):
+                        with Horizontal():
+                            with Vertical(id="bridge-sessions"):
+                                yield Label("Active Bridge Sessions", classes="panel-title")
+                                yield Container(id="bridge-session-list")
+                            with Vertical(id="bridge-controls"):
+                                yield Label("Session Controls", classes="panel-title")
+                                yield Label("Select a session to control", id="selected-session-label")
+                                with Horizontal():
+                                    yield Button("CONTINUE", variant="success", id="cmd-continue")
+                                    yield Button("PAUSE", variant="warning", id="cmd-pause")
+                                    yield Button("STOP", variant="error", id="cmd-stop")
+                                with Horizontal():
+                                    yield Button("REJECT", variant="error", id="cmd-reject")
+                                    yield Button("EDIT PLAN", id="cmd-edit")
+                                yield Label("Ask Jules:")
+                                yield Input(placeholder="Your question...", id="ask-input")
+                                yield Button("SEND ASK", variant="primary", id="cmd-ask")
+                                yield Log(id="bridge-log")
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+    def update_ui(self):
+        if hasattr(self, "orchestrator"):
+=======
+    def update_ui(self):
+        if hasattr(self, "bridge"):
+            # Update Bridge Session List
+            session_container = self.query_one("#bridge-session-list")
+            existing_widgets = {child.id: child for child in session_container.walk_children() if child.id}
+
+            for sid, metadata in self.bridge.active_sessions.items():
+                widget_id = f"bridge-sid-{sid[:8]}"
+                if widget_id not in existing_widgets:
+                    btn = Button(f"{sid[:8]} ({metadata.get('branch', 'unknown')})", id=widget_id)
+                    btn.session_id = sid # Store full ID
+                    session_container.mount(btn)
+
+        if hasattr(self, "orchestrator"):
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+        elif event.button.id == "start-btn":
+            self.save_current_config()
+            asyncio.create_task(self.handle_start())
+
+    async def perform_login(self):
+=======
+        elif event.button.id == "start-btn":
+            self.save_current_config()
+            asyncio.create_task(self.handle_start())
+
+        elif event.button.id.startswith("bridge-sid-"):
+            self.selected_bridge_session = event.button.session_id
+            self.query_one("#selected-session-label").update(f"Selected: {self.selected_bridge_session}")
+
+        elif event.button.id.startswith("cmd-"):
+            if not hasattr(self, "selected_bridge_session"):
+                self.notify("No bridge session selected", severity="error")
+                return
+
+            cmd = event.button.id.replace("cmd-", "").upper()
+            msg = self.query_one("#ask-input").value if cmd == "ASK" else None
+
+            await self.bridge.send_command(self.selected_bridge_session, cmd, message=msg)
+            self.log_to_bridge(f"Command {cmd} sent to {self.selected_bridge_session}")
+            if cmd == "ASK":
+                 self.query_one("#ask-input").value = ""
+
+    def log_to_bridge(self, message: str):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        try:
+            self.query_one("#bridge-log").write_line(f"[{timestamp}] {message}")
+        except:
+            pass
+
+    async def on_bridge_event(self, type, sid, data):
+        if type == "NEW_SESSION":
+            self.log_to_bridge(f"New session: {sid}")
+            self.notify(f"New Bridge Session: {sid[:8]}")
+        elif type == "EVENT":
+            event_name = data.get("event")
+            self.log_to_bridge(f"[{sid[:8]}] {event_name}: {json.dumps(data.get('payload'))}")
+
+    async def perform_login(self):
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+    async def handle_start(self):
+        try:
+=======
+    async def on_mount(self):
+        self.set_interval(2, self.update_ui)
+        # Load saved config
+        if os.path.exists("config.json"):
+            try:
+                with open("config.json", "r") as f:
+                    config = json.load(f)
+                    self.query_one("#api-key").value = config.get("gemini_api_key", "")
+                    self.query_one("#gh-token").value = config.get("github_token", "")
+                    self.query_one("#repo-name").value = config.get("repo_full_name", "")
+                    self.query_one("#proxy-url").value = config.get("proxy_url", "")
+                    self.query_one("#session-state").text = config.get("session_state", "")
+            except:
+                pass
+
+        # Start Bridge
+        from hydra_bridge import HydraBridge
+        self.bridge = HydraBridge(log_callback=self.log_to_bridge)
+        asyncio.create_task(self.bridge.listen_for_sessions(self.on_bridge_event))
+
+    async def handle_start(self):
+        try:
+>>>>>>> REPLACE
