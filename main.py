@@ -20,19 +20,6 @@ from context_engine import ContextEngine
 logging.basicConfig(filename="hydra.log", level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("HydraApp")
 
-class LoginScreen(Screen):
-    def compose(self) -> ComposeResult:
-        yield Vertical(
-            Label("Please log in to Google in the browser window that just opened."),
-            Label("Once you see the Jules dashboard, you can close the browser or come back here."),
-            Button("I have logged in", variant="success", id="login-done-btn"),
-            id="login-dialog"
-        )
-
-    def on_button_pressed(self, event: Button.Pressed):
-        if event.button.id == "login-done-btn":
-            self.app.pop_screen()
-
 class Orchestrator:
     def __init__(self, config: Dict, log_callback: callable):
         self.config = config
@@ -51,37 +38,24 @@ class Orchestrator:
         self.log(f"Starting orchestration for goal: {user_goal}")
 
         try:
-            # 1. Get Context
             self.log("Gathering codebase context...")
             context = self.context_engine.get_context()
 
-            # 2. Generate Task Graph
             self.log("Generating task graph via Gemini...")
             task_graph = self.brain.generate_task_graph(user_goal, context)
             self.log(f"Generated {len(task_graph.tasks)} tasks.")
 
-            # 3. Initialize Scheduler
             self.scheduler = DAGScheduler(task_graph)
 
-            # 4. Start Browser
             self.log("Launching Hydra Controller...")
-            # Use the state from the text area if provided, otherwise check state.json
-            state_path = "state.json"
-            if self.config.get("session_state"):
-                with open("temp_state.json", "w") as f:
-                    f.write(self.config["session_state"])
-                state_path = "temp_state.json"
-
             await self.hydra.start(headless=True)
 
-            # 5. Execution Loop
             while not self.scheduler.is_finished():
                 ready_tasks = self.scheduler.get_ready_tasks()
                 for task_id in ready_tasks:
                     task_node = self.scheduler.nodes[task_id]
                     self.log(f"Starting task: {task_id} on branch {task_node.task.branch}")
 
-                    # Create session
                     session_id = await self.hydra.create_session(
                         self.config["repo_full_name"],
                         task_node.task.branch
@@ -89,24 +63,13 @@ class Orchestrator:
 
                     if session_id:
                         self.scheduler.mark_running(task_id, session_id)
-                        # Send the actual instruction
                         await self.hydra.send_message(session_id, task_node.task.instruction)
                         self.log(f"Task {task_id} is now running in session {session_id}")
                     else:
                         self.log(f"Failed to create session for task {task_id}")
                         self.scheduler.mark_failed(task_id)
 
-                # Poll for completion (Mock logic for now, in reality we'd scrape Jules' status)
-                # For this prototype, we'll just wait and mark things done if they are 'Running'
                 await asyncio.sleep(10)
-                for task_id, node in self.scheduler.nodes.items():
-                    if node.status == "running":
-                        # In a real version, we'd check get_activities()
-                        # activities = await self.hydra.get_activities(node.session_id)
-                        # if all(a.status == "Done" for a in activities):
-                        #     self.scheduler.mark_completed(task_id)
-                        pass
-
                 await asyncio.sleep(5)
 
             self.log("All tasks processed.")
@@ -119,58 +82,19 @@ class Orchestrator:
 
 class HydraApp(App):
     CSS = """
-    #main-container {
-        height: 1fr;
-    }
-    #left-panel {
-        width: 30%;
-        border-right: solid $primary;
-        padding: 1;
-    }
-    #center-panel {
-        width: 70%;
-        padding: 1;
-    }
-    #config-form {
-        padding: 1;
-        border: solid $accent;
-        margin: 1;
-    }
-    #goal-header {
-        background: $boost;
-        padding: 1;
-        margin-bottom: 1;
-    }
-    .panel-title {
-        text-align: center;
-        background: $primary;
-        color: white;
-        margin-bottom: 1;
-    }
-    #task-list {
-        height: 1fr;
-        border: solid $accent;
-    }
-    #fleet-status {
-        height: 1fr;
-        border: solid $accent;
-    }
-    #global-logs {
-        height: 15;
-        border-top: solid $primary;
-    }
-    .collapsed {
-        display: none;
-    }
-    #bridge-sessions {
-        width: 30%;
-        border-right: solid $primary;
-        padding: 1;
-    }
-    #bridge-controls {
-        width: 70%;
-        padding: 1;
-    }
+    #main-container { height: 1fr; }
+    #left-panel { width: 30%; border-right: solid $primary; padding: 1; }
+    #center-panel { width: 70%; padding: 1; }
+    #config-form { padding: 1; border: solid $accent; margin: 1; }
+    #goal-header { background: $boost; padding: 1; margin-bottom: 1; }
+    .panel-title { text-align: center; background: $primary; color: white; margin-bottom: 1; }
+    #task-list { height: 1fr; border: solid $accent; }
+    #fleet-status { height: 1fr; border: solid $accent; }
+    #global-logs { height: 15; border-top: solid $primary; }
+    .collapsed { display: none; }
+    #bridge-sessions { width: 30%; border-right: solid $primary; padding: 1; }
+    #bridge-controls { width: 70%; padding: 1; }
+    #bridge-log { height: 1fr; border: solid $accent; }
     """
 
     def compose(self) -> ComposeResult:
@@ -182,23 +106,12 @@ class HydraApp(App):
                         yield Label("Configuration")
                         with Horizontal():
                             yield Input(placeholder="Gemini API Key", id="api-key", password=True)
-                            yield Button("Test Key", variant="primary", id="test-api-btn")
                         with Horizontal():
                             yield Input(placeholder="GitHub Token", id="gh-token", password=True)
-                            yield Button("Test Token", variant="primary", id="test-gh-btn")
                         with Horizontal():
                             yield Input(placeholder="Repo (owner/repo)", id="repo-name")
-                            yield Button("Test Repo", variant="primary", id="test-repo-btn")
                         with Horizontal():
                             yield Input(placeholder="Proxy URL (socks5://...)", id="proxy-url")
-                            yield Button("Test Proxy", variant="primary", id="test-proxy-btn")
-
-                        yield Label("Playwright Session State (JSON)")
-                        yield Label("This stores your login cookies. It is filled automatically after 'Login to Google'.", variant="dim")
-                        yield TextArea(id="session-state", classes="collapsed")
-
-                        with Horizontal():
-                            yield Button("Login to Google", id="login-btn")
                 with TabPane("Monitor", id="monitor-tab"):
                     with Vertical(id="goal-header"):
                         with Vertical(id="goal-container", classes="collapsed"):
@@ -244,7 +157,6 @@ class HydraApp(App):
 
     async def on_mount(self):
         self.set_interval(2, self.update_ui)
-        # Load saved config
         if os.path.exists("config.json"):
             try:
                 with open("config.json", "r") as f:
@@ -253,69 +165,45 @@ class HydraApp(App):
                     self.query_one("#gh-token").value = config.get("github_token", "")
                     self.query_one("#repo-name").value = config.get("repo_full_name", "")
                     self.query_one("#proxy-url").value = config.get("proxy_url", "")
-                    if "session_state" in config:
-                        self.query_one("#session-state").text = config["session_state"]
-            except:
-                pass
+            except: pass
 
-        # Start Bridge
         from hydra_bridge import HydraBridge
         self.bridge = HydraBridge(log_callback=self.log_to_bridge)
         asyncio.create_task(self.bridge.listen_for_sessions(self.on_bridge_event))
 
     def update_ui(self):
         if hasattr(self, "bridge"):
-            # Update Bridge Session List
             session_container = self.query_one("#bridge-session-list")
             existing_widgets = {child.id: child for child in session_container.walk_children() if child.id}
-
             for sid, metadata in self.bridge.active_sessions.items():
                 widget_id = f"bridge-sid-{sid[:8]}"
                 if widget_id not in existing_widgets:
                     btn = Button(f"{sid[:8]} ({metadata.get('branch', 'unknown')})", id=widget_id)
-                    btn.session_id = sid # Store full ID
+                    btn.session_id = sid
                     session_container.mount(btn)
 
-        if hasattr(self, "orchestrator"):
-            # Update Overall Status
-            if self.orchestrator.scheduler:
-                # Update Task List
-                task_container = self.query_one("#task-list")
-                status_map = self.orchestrator.scheduler.get_all_status()
-
-                # Simple diff-based update to avoid flickering
-                existing_tasks = {child.id: child for child in task_container.walk_children() if child.id}
-
-                for task_id, status in status_map.items():
-                    widget_id = f"task-{task_id}"
-                    if widget_id in existing_tasks:
-                        existing_tasks[widget_id].update(f"{task_id}: {status}")
-                    else:
-                        task_container.mount(Label(f"{task_id}: {status}", id=widget_id))
-
-            # Update Fleet Status
-            for i, (sid, session) in enumerate(self.orchestrator.hydra.sessions.items(), 1):
-                if i <= 3:
-                    self.query_one(f"#slot-{i}").update(f"Slot {i}: {sid} ({session.branch})")
+        if hasattr(self, "orchestrator") and self.orchestrator.scheduler:
+            task_container = self.query_one("#task-list")
+            status_map = self.orchestrator.scheduler.get_all_status()
+            existing_tasks = {child.id: child for child in task_container.walk_children() if child.id}
+            for task_id, status in status_map.items():
+                widget_id = f"task-{task_id}"
+                if widget_id in existing_tasks:
+                    existing_tasks[widget_id].update(f"{task_id}: {status}")
+                else:
+                    task_container.mount(Label(f"{task_id}: {status}", id=widget_id))
 
     def log_to_ui(self, message: str):
         timestamp = datetime.now().strftime("%H:%M:%S")
         formatted_msg = f"[{timestamp}] {message}"
-        try:
-            self.query_one("#main-log").write_line(formatted_msg)
-        except:
-            pass # App might not be fully mounted
-
-        # Also log to file
-        with open("hydra.log", "a") as f:
-            f.write(formatted_msg + "\n")
+        try: self.query_one("#main-log").write_line(formatted_msg)
+        except: pass
+        with open("hydra.log", "a") as f: f.write(formatted_msg + "\n")
 
     def log_to_bridge(self, message: str):
         timestamp = datetime.now().strftime("%H:%M:%S")
-        try:
-            self.query_one("#bridge-log").write_line(f"[{timestamp}] {message}")
-        except:
-            pass
+        try: self.query_one("#bridge-log").write_line(f"[{timestamp}] {message}")
+        except: pass
 
     async def on_bridge_event(self, type, sid, data):
         if type == "NEW_SESSION":
@@ -331,69 +219,31 @@ class HydraApp(App):
             "github_token": self.query_one("#gh-token").value,
             "repo_full_name": self.query_one("#repo-name").value,
             "proxy_url": self.query_one("#proxy-url").value,
-            "session_state": self.query_one("#session-state").text,
             "repo_path": "."
         }
-        with open("config.json", "w") as f:
-            json.dump(config, f)
-        self.log_to_ui("Configuration saved to config.json")
+        with open("config.json", "w") as f: json.dump(config, f)
+        self.log_to_ui("Configuration saved.")
 
     async def on_button_pressed(self, event: Button.Pressed):
         if event.button.id == "toggle-goal-btn":
             container = self.query_one("#goal-container")
-            if container.has_class("collapsed"):
-                container.remove_class("collapsed")
-            else:
-                container.add_class("collapsed")
-
-        elif event.button.id == "login-btn":
-            self.save_current_config()
-            asyncio.create_task(self.perform_login())
-
+            if container.has_class("collapsed"): container.remove_class("collapsed")
+            else: container.add_class("collapsed")
         elif event.button.id == "start-btn":
             self.save_current_config()
             asyncio.create_task(self.handle_start())
-
         elif event.button.id and event.button.id.startswith("bridge-sid-"):
             self.selected_bridge_session = event.button.session_id
             self.query_one("#selected-session-label").update(f"Selected: {self.selected_bridge_session}")
-
         elif event.button.id and event.button.id.startswith("cmd-"):
             if not hasattr(self, "selected_bridge_session"):
                 self.notify("No bridge session selected", severity="error")
                 return
-
             cmd = event.button.id.replace("cmd-", "").upper()
             msg = self.query_one("#ask-input").value if cmd == "ASK" else None
-
             await self.bridge.send_command(self.selected_bridge_session, cmd, message=msg)
             self.log_to_bridge(f"Command {cmd} sent to {self.selected_bridge_session}")
-            if cmd == "ASK":
-                 self.query_one("#ask-input").value = ""
-
-    async def perform_login(self):
-        from hydra_controller import HydraController
-        proxy_url = self.query_one("#proxy-url").value or os.getenv("PROXY_URL")
-        if proxy_url and "://" not in proxy_url:
-            proxy_url = f"socks5://{proxy_url}"
-
-        self.log_to_ui("Initializing browser for manual Google Login...")
-        self.temp_hydra = HydraController(proxy_url)
-        try:
-            await self.temp_hydra.start(headless=False)
-            self.push_screen(LoginScreen())
-            await self.temp_hydra.login()
-            self.log_to_ui("Google Login detected successfully! Session state updated.")
-            self.notify("Google Login Successful!")
-            if os.path.exists("state.json"):
-                with open("state.json", "r") as f:
-                    self.query_one("#session-state").text = f.read()
-                self.save_current_config()
-        except Exception as e:
-            self.log_to_ui(f"Login failed or interrupted: {e}")
-            self.notify("Login Failed", severity="error")
-            if hasattr(self, "temp_hydra"):
-                await self.temp_hydra.stop()
+            if cmd == "ASK": self.query_one("#ask-input").value = ""
 
     async def handle_start(self):
         try:
@@ -402,25 +252,18 @@ class HydraApp(App):
                 "github_token": self.query_one("#gh-token").value or os.getenv("GITHUB_TOKEN"),
                 "repo_full_name": self.query_one("#repo-name").value or os.getenv("REPO_NAME"),
                 "proxy_url": self.query_one("#proxy-url").value or os.getenv("PROXY_URL"),
-                "session_state": self.query_one("#session-state").text,
                 "repo_path": "."
             }
             goal = self.query_one("#user-goal").text
-
             if not all([config["gemini_api_key"], config["github_token"], config["repo_full_name"], goal]):
-                self.log_to_ui("Missing required configuration or goal!")
+                self.log_to_ui("Missing configuration or goal!")
                 return
-
-            # Save config for next run
-            with open("config.json", "w") as f:
-                json.dump(config, f)
-
+            with open("config.json", "w") as f: json.dump(config, f)
             self.query_one(TabbedContent).active = "monitor-tab"
             self.orchestrator = Orchestrator(config, self.log_to_ui)
             asyncio.create_task(self.orchestrator.run(goal))
         except Exception as e:
-            self.log_to_ui(f"Failed to handle start: {e}")
-            self.log_to_ui(traceback.format_exc())
+            self.log_to_ui(f"Failed to start: {e}")
 
 if __name__ == "__main__":
     app = HydraApp()
