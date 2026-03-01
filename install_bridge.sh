@@ -1,7 +1,11 @@
 #!/bin/bash
 set -e
 echo "Installing Jules Bridge..."
+
+# 1. Install dependencies
 pip install mcp httpx
+
+# 2. Create the bridge daemon script
 cat << 'INNER_EOF' > /home/jules/bridge_daemon.py
 import asyncio
 import os
@@ -64,6 +68,7 @@ if __name__ == "__main__":
     mcp.run()
 INNER_EOF
 
+# 3. Setup systemd service (if running as root)
 if [ "$EUID" -eq 0 ]; then
   cat << 'INNER_EOF' > /etc/systemd/system/jules-bridge.service
 [Unit]
@@ -78,16 +83,48 @@ Environment=PYTHONUNBUFFERED=1
 WantedBy=multi-user.target
 INNER_EOF
   systemctl daemon-reload
-  systemctl enable jules-bridge
-  systemctl start jules-bridge
+  systemctl enable jules-bridge || true
+  systemctl start jules-bridge || true
 fi
 
+# 4. Create and Commit AGENTS.md
 cat << 'INNER_EOF' > AGENTS.md
-# Agent Instructions: Jules Bridge
-You are connected to a Hydra Controller via the Jules Bridge MCP server.
-Before starting any task, you MUST:
-1. Call `initialize_session`.
-2. Call `report_event` with `PLAN_CREATED`.
-3. Call `wait_for_instruction`.
+# Agent Instructions: Jules Bridge Daemon Integration
+
+You are participating in a managed execution session controlled by a Hydra Orchestrator. To facilitate external visibility and control, you MUST use the provided `JulesBridge` MCP server tools.
+
+## Mandatory Workflow
+
+### 1. Initialization
+At the very beginning of your session, you MUST call:
+- `initialize_session(repo, branch)`: Provide the repository name and the branch you are working on.
+
+### 2. Planning and Approval
+Before executing any major tasks or code changes:
+- `report_event(event_type="PLAN_CREATED", payload={"plan": [...]})`: Report your proposed plan.
+- `wait_for_instruction()`: This tool will block your execution. You MUST wait for it to return a command from the controller.
+
+### 3. Execution Reporting
+During your work, keep the controller informed:
+- `report_event(event_type="STEP_STARTED", payload={"step": "..."})`
+- `report_event(event_type="STEP_COMPLETED", payload={"result": "..."})`
+
+### 4. Interactive Feedback
+If you receive an `ASK` command (returned by `wait_for_instruction`), you can reply using `report_event(event_type="INFO", payload={"response": "..."})` and then call `wait_for_instruction()` again.
+
+### 5. Task Completion
+When you have finished your task:
+- `report_event(event_type="TASK_FINISHED", payload={"status": "Success/Failure", "summary": "..."})`
+
+The bridge daemon provides these tools via MCP.
 INNER_EOF
+
+if [ -d .git ]; then
+    echo "Adding and committing AGENTS.md..."
+    git add AGENTS.md
+    git commit -m "Add AGENTS.md for Jules Bridge Daemon control" || echo "Nothing to commit (AGENTS.md already exists and is unchanged)"
+else
+    echo "Warning: Not a git repository. AGENTS.md created but not committed."
+fi
+
 echo "Installation complete!"
