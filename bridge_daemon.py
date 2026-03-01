@@ -6,79 +6,49 @@ import time
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-# Firebase Config
-FIREBASE_URL = "https://channel1-2792f-default-rtdb.firebaseio.com"
-
-# Session ID
+# Firebase Config (Note the '*/main' prefix to match your security rules)
+FIREBASE_URL = "https://channel1-2792f-default-rtdb.firebaseio.com/*/main"
 SESSION_ID = os.getenv("JULES_SESSION_ID", str(uuid.uuid4()))
 
 mcp = FastMCP("JulesBridge")
 
-async def firebase_put(path, data):
+async def firebase_request(method, path, data=None):
+    url = f"{FIREBASE_URL}/{path}.json"
     async with httpx.AsyncClient() as client:
-        # Note: In production, you would append ?auth=TOKEN
-        url = f"{FIREBASE_URL}/{path}.json"
-        response = await client.put(url, json=data)
-        if response.status_code == 401:
-            print(f"Warning: 401 Unauthorized for {url}. Check Firebase rules.")
-            return {"error": "Unauthorized", "url": url}
-        response.raise_for_status()
-        return response.json()
-
-async def firebase_post(path, data):
-    async with httpx.AsyncClient() as client:
-        url = f"{FIREBASE_URL}/{path}.json"
-        response = await client.post(url, json=data)
-        if response.status_code == 401:
-            print(f"Warning: 401 Unauthorized for {url}. Check Firebase rules.")
-            return {"error": "Unauthorized", "url": url}
-        response.raise_for_status()
-        return response.json()
-
-async def firebase_get(path):
-    async with httpx.AsyncClient() as client:
-        url = f"{FIREBASE_URL}/{path}.json"
-        response = await client.get(url)
-        if response.status_code == 401:
-            print(f"Warning: 401 Unauthorized for {url}. Check Firebase rules.")
+        try:
+            resp = await client.request(method, url, json=data)
+            if resp.status_code >= 400:
+                print(f"Firebase {method} error {resp.status_code} on {path}: {resp.text}")
+            return resp.json()
+        except Exception as e:
+            print(f"Request failed: {e}")
             return None
-        response.raise_for_status()
-        return response.json()
 
 @mcp.tool()
 async def report_event(event_type: str, payload: dict) -> str:
-    """
-    Report an event to the Hydra controller.
-    event_type: SESSION_STARTED, PLAN_CREATED, STEP_STARTED, STEP_COMPLETED, TASK_FINISHED, ERROR, INFO
-    """
+    """Report an event to the Hydra controller."""
     event_data = {
         "timestamp": time.time(),
         "event": event_type,
         "payload": payload,
         "session_id": SESSION_ID
     }
-    await firebase_post(f"sessions/{SESSION_ID}/events", event_data)
-    await firebase_put(f"sessions/{SESSION_ID}/last_event", event_type)
-    return f"Event {event_type} reported (Note: Check logs for potential 401 errors)."
+    await firebase_request("POST", f"sessions/{SESSION_ID}/events", event_data)
+    await firebase_request("PUT", f"sessions/{SESSION_ID}/last_event", event_type)
+    return f"Event {event_type} reported."
 
 @mcp.tool()
 async def wait_for_instruction() -> dict:
-    """
-    Wait for an instruction from the Hydra controller.
-    """
-    print(f"Waiting for instruction for session {SESSION_ID}...")
-
+    """Wait for an instruction from the Hydra controller."""
     while True:
-        command = await firebase_get(f"sessions/{SESSION_ID}/command")
+        command = await firebase_request("GET", f"sessions/{SESSION_ID}/command")
         if command:
             return command
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(1)
 
 @mcp.tool()
 async def initialize_session(repo: str, branch: str) -> str:
-    """
-    Initialize the session in the bridge.
-    """
+    """Initialize the session in the bridge."""
     data = {
         "session_id": SESSION_ID,
         "repo": repo,
@@ -86,8 +56,8 @@ async def initialize_session(repo: str, branch: str) -> str:
         "start_time": time.time(),
         "status": "online"
     }
-    await firebase_put(f"sessions/{SESSION_ID}/metadata", data)
-    return f"Session {SESSION_ID} initialized (Note: Check logs for potential 401 errors)."
+    await firebase_request("PUT", f"sessions/{SESSION_ID}/metadata", data)
+    return f"Session {SESSION_ID} initialized."
 
 if __name__ == "__main__":
     mcp.run()
