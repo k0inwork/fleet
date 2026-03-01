@@ -6,7 +6,10 @@ echo "Installing Jules Bridge..."
 pip install mcp httpx
 
 # 2. Create the bridge daemon script
-cat << 'INNER_EOF' > /home/jules/bridge_daemon.py
+# We use a path that is likely to be writable by the user
+BRIDGE_PATH="$HOME/bridge_daemon.py"
+
+cat << 'INNER_EOF' > "$BRIDGE_PATH"
 import asyncio
 import os
 import json
@@ -68,16 +71,17 @@ if __name__ == "__main__":
     mcp.run()
 INNER_EOF
 
-# 3. Setup systemd service (if running as root)
+# 3. Setup startup
 if [ "$EUID" -eq 0 ]; then
-  cat << 'INNER_EOF' > /etc/systemd/system/jules-bridge.service
+  echo "Setting up systemd service..."
+  cat << INNER_EOF > /etc/systemd/system/jules-bridge.service
 [Unit]
 Description=Jules Bridge Daemon
 After=network.target
 [Service]
-ExecStart=/usr/bin/python3 /home/jules/bridge_daemon.py
+ExecStart=$(which python3) $BRIDGE_PATH
 Restart=always
-User=jules
+User=$(whoami)
 Environment=PYTHONUNBUFFERED=1
 [Install]
 WantedBy=multi-user.target
@@ -85,6 +89,16 @@ INNER_EOF
   systemctl daemon-reload
   systemctl enable jules-bridge || true
   systemctl start jules-bridge || true
+else
+  echo "No root access. Adding daemon startup to .bashrc..."
+  STARTUP_CMD="nohup python3 $BRIDGE_PATH > $HOME/bridge_daemon.log 2>&1 &"
+  if ! grep -q "bridge_daemon.py" "$HOME/.bashrc"; then
+    echo -e "\n# Start Jules Bridge Daemon\n$STARTUP_CMD" >> "$HOME/.bashrc"
+    echo "Added to .bashrc. The daemon will start in new shell sessions."
+  fi
+  # Start it now too
+  eval "$STARTUP_CMD"
+  echo "Daemon started in background."
 fi
 
 # 4. Create and Commit AGENTS.md
@@ -94,6 +108,10 @@ cat << 'INNER_EOF' > AGENTS.md
 You are participating in a managed execution session controlled by a Hydra Orchestrator. To facilitate external visibility and control, you MUST use the provided `JulesBridge` MCP server tools.
 
 ## Mandatory Workflow
+
+### 0. Daemon Check
+The bridge daemon should be running in the background. If you cannot connect to the `JulesBridge` MCP server, you can start it manually with:
+`nohup python3 ~/bridge_daemon.py > ~/bridge_daemon.log 2>&1 &`
 
 ### 1. Initialization
 At the very beginning of your session, you MUST call:
