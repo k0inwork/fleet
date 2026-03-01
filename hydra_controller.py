@@ -3,6 +3,7 @@ import os
 import json
 import logging
 import subprocess
+import httpx
 from typing import Optional, List, Dict
 from pydantic import BaseModel
 
@@ -11,6 +12,8 @@ logger = logging.getLogger("JulesCLIController")
 class JulesActivity(BaseModel):
     description: str
     status: str
+    originator: Optional[str] = None
+    create_time: Optional[str] = None
 
 class JulesSession:
     def __init__(self, session_id: str, repo: str, status: str = "idle"):
@@ -20,14 +23,15 @@ class JulesSession:
 
 class HydraController:
     """
-    Controller that uses the 'jules' CLI to manage sessions.
-    Replaces the previous Playwright-based implementation.
+    Controller that uses both the 'jules' CLI and REST API to manage sessions.
     """
     def __init__(self, proxy_url: Optional[str] = None, state_path: str = "state.json", credentials: Optional[Dict] = None):
         self.proxy_url = proxy_url
         self.state_path = state_path
         self.credentials = credentials or {}
         self.sessions: Dict[str, JulesSession] = {}
+        self.jules_api_key = os.getenv("JULES_API_KEY")
+        self.api_base = "https://jules.googleapis.com/v1alpha"
 
     def _get_env(self):
         env = os.environ.copy()
@@ -36,6 +40,44 @@ class HydraController:
             env['HTTPS_PROXY'] = self.proxy_url
             env['all_proxy'] = self.proxy_url
         return env
+
+    def _get_httpx_client(self) -> httpx.AsyncClient:
+        limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
+        proxy = self.proxy_url if self.proxy_url else None
+        return httpx.AsyncClient(proxy=proxy, limits=limits, timeout=30.0)
+
+    async def _api_request(self, method: str, endpoint: str, data: Optional[Dict] = None) -> Dict:
+        if not self.jules_api_key:
+            raise Exception("Jules API Key is not set.")
+
+        headers = {
+            "X-Goog-Api-Key": self.jules_api_key,
+            "Content-Type": "application/json"
+        }
+        url = f"{self.api_base}/{endpoint}"
+
+        async with self._get_httpx_client() as client:
+            if method.upper() == "GET":
+                response = await client.get(url, headers=headers)
+            elif method.upper() == "POST":
+                response = await client.post(url, headers=headers, json=data)
+            else:
+                raise ValueError(f"Unsupported method: {method}")
+
+            if response.status_code not in [200, 201]:
+                logger.error(f"API Error ({response.status_code}): {response.text}")
+                response.raise_for_status()
+
+            return response.json()
+
+    async def list_sources(self) -> List[Dict]:
+        """Lists available sources via REST API."""
+        try:
+            data = await self._api_request("GET", "sources")
+            return data.get("sources", [])
+        except Exception as e:
+            logger.error(f"Failed to list sources: {e}")
+            raise
 
     async def _run_command(self, cmd: List[str]) -> subprocess.CompletedProcess:
         loop = asyncio.get_event_loop()
@@ -54,125 +96,177 @@ class HydraController:
             raise
 
     async def start(self, headless: bool = True):
-        """No-op for CLI controller as it doesn't need a browser background process."""
-        logger.info("JulesCLIController started.")
+        logger.info("HydraController (Hybrid) started.")
 
     async def stop(self):
-        """No-op for CLI controller."""
-        logger.info("JulesCLIController stopped.")
+        logger.info("HydraController (Hybrid) stopped.")
 
     async def login(self):
         """
         Triggers 'jules login'.
-        In a TUI environment, this might need to be handled carefully if it's interactive.
         """
         logger.info("Triggering 'jules login'...")
         # jules login usually opens a browser.
-        # Since we are in a sub-process, it should still work if the environment has a browser.
+        # We run it without capturing output to avoid hanging on potential interactive prompts
+        # or at least not block the process if it expects a TTY.
         try:
-            process = await self._run_command(["jules", "login"])
+            loop = asyncio.get_event_loop()
+            process = await loop.run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    ["jules", "login"],
+                    env=self._get_env(),
+                    # Not capturing output to avoid hanging on potential interactive prompts
+                )
+            )
             if process.returncode == 0:
                 logger.info("Login command finished.")
             else:
-                logger.error(f"Login failed: {process.stderr}")
+                logger.error(f"Login command returned non-zero code: {process.returncode}")
         except Exception as e:
             logger.error(f"Failed to execute jules login: {e}")
 
     async def create_session(self, repo_full_name: str, branch: str = "main", instruction: str = "") -> Optional[str]:
-        """Creates a new session for a specific repo using Jules CLI."""
-        logger.info(f"Creating session for {repo_full_name} with instruction: {instruction[:50]}...")
+        """Creates a new session for a specific repo using Jules CLI (or API if key available)."""
 
-        # Note: Jules CLI 'new' command doesn't explicitly take a branch,
-        # it usually works on the repo's default or current branch if local.
-        # But for remote new, it uses the repo name.
+        # If we have an API key, we prefer the API for creation to get immediate ID
+        if self.jules_api_key:
+            try:
+                # Need to find source name first
+                sources = await self.list_sources()
+                source_name = next((s["name"] for s in sources if repo_full_name in s["name"]), None)
+
+                if not source_name:
+                    logger.warning(f"Source for {repo_full_name} not found via API. Falling back to CLI.")
+                else:
+                    data = {
+                        "prompt": instruction,
+                        "sourceContext": {
+                            "source": source_name,
+                            "githubRepoContext": {
+                                "startingBranch": branch
+                            }
+                        },
+                        "title": f"Task: {repo_full_name}"
+                    }
+                    resp = await self._api_request("POST", "sessions", data)
+                    session_id = resp.get("id")
+                    if session_id:
+                        logger.info(f"Session created via API: {session_id}")
+                        self.sessions[session_id] = JulesSession(session_id, repo_full_name, "running")
+                        return session_id
+            except Exception as e:
+                logger.error(f"API session creation failed: {e}. Falling back to CLI.")
+
+        # CLI Fallback
         cmd = ["jules", "remote", "new", "--repo", repo_full_name, "--session", instruction]
-
         try:
             result = await self._run_command(cmd)
             if result.returncode == 0:
-                # Parse session ID from output.
-                # Typical output: "Successfully created session: <session_id>" or similar.
-                # We need to be robust here.
                 output = result.stdout.strip()
-                logger.info(f"CLI Output: {output}")
-
-                # Simple extraction - this might need refinement based on exact CLI output format
                 import re
-                # Match alphanumeric, underscores, hyphens, and slashes
                 match = re.search(r'session:\s*([\w\-/]+)', output, re.IGNORECASE)
                 if not match:
-                    # Fallback: maybe it just prints the ID?
                     match = re.search(r'ID:\s*([\w\-/]+)', output, re.IGNORECASE)
 
                 if match:
                     session_id = match.group(1)
-                    logger.info(f"Session created via CLI: {session_id}")
                     self.sessions[session_id] = JulesSession(session_id, repo_full_name, "running")
                     return session_id
-                else:
-                    logger.warning(f"Could not parse session ID from CLI output. Full output: {output}")
-                    return None
-            else:
-                logger.error(f"Failed to create session: {result.stderr}")
-                return None
+            return None
         except Exception as e:
-            logger.error(f"Error creating session: {e}")
+            logger.error(f"Error creating session via CLI: {e}")
             return None
 
     async def get_activities(self, session_id: str) -> List[JulesActivity]:
-        """
-        Polls the status of a session by parsing the output of 'jules remote list --session'.
-        """
+        """Fetch detailed activities via REST API or fallback to CLI listing."""
+        if self.jules_api_key:
+            try:
+                # The session ID might be just the number, but API might expect sessions/ID
+                # If it's a UUID/number, we prepend sessions/
+                name = session_id if "/" in session_id else f"sessions/{session_id}"
+                endpoint = f"{name}/activities"
+                resp = await self._api_request("GET", endpoint)
+                api_activities = resp.get("activities", [])
+
+                activities = []
+                for act in api_activities:
+                    # Determine a friendly description
+                    desc = "Activity"
+                    if "planGenerated" in act: desc = "Plan generated"
+                    elif "progressUpdated" in act: desc = act["progressUpdated"].get("title", "Progress update")
+                    elif "sessionCompleted" in act: desc = "Session completed"
+
+                    status = "Running"
+                    if "sessionCompleted" in act: status = "Done"
+
+                    activities.append(JulesActivity(
+                        description=desc,
+                        status=status,
+                        originator=act.get("originator"),
+                        create_time=act.get("createTime")
+                    ))
+                return activities
+            except Exception as e:
+                logger.error(f"Failed to get activities via API: {e}")
+
+        # CLI Fallback (Already implemented logic)
         cmd = ["jules", "remote", "list", "--session"]
         try:
             result = await self._run_command(cmd)
             if result.returncode == 0:
-                # Parse the output line by line to find the specific session
                 lines = result.stdout.splitlines()
                 for line in lines:
                     if session_id in line:
-                        # Check status for THIS specific line
                         status = "Running"
                         lower_line = line.lower()
                         if any(term in lower_line for term in ["completed", "finished", "done"]):
                             status = "Done"
                         elif "failed" in lower_line or "error" in lower_line:
                             status = "Failed"
-
-                        return [JulesActivity(description=f"Session status: {status}", status=status)]
-
-                logger.warning(f"Session {session_id} not found in 'jules remote list --session'.")
+                        return [JulesActivity(description=f"Status: {status}", status=status)]
             return []
         except Exception as e:
-            logger.error(f"Error getting activities: {e}")
             return []
 
     async def send_message(self, session_id: str, message: str):
-        """
-        Jules CLI 'remote new' is the primary way to send instructions.
-        Sending follow-up messages to an EXISTING remote session might not be directly supported via CLI
-        in the same way 'remote new' works (which creates a NEW session).
-        If the CLI supports continuing a session, we should use that.
-        According to docs, 'remote new' creates a session.
-        """
-        logger.warning(f"send_message to session {session_id} called. CLI might not support follow-ups to remote sessions yet. Message: {message[:50]}...")
-        # For now, we might just have to create a new session if tasks are discrete,
-        # or wait for CLI updates.
-        pass
+        """Send a message to an existing session via REST API."""
+        if not self.jules_api_key:
+            logger.warning("send_message requires API Key.")
+            return
+
+        try:
+            name = session_id if "/" in session_id else f"sessions/{session_id}"
+            endpoint = f"{name}:sendMessage"
+            data = {"prompt": message}
+            await self._api_request("POST", endpoint, data)
+            logger.info(f"Message sent to session {session_id}")
+        except Exception as e:
+            logger.error(f"Failed to send message: {e}")
+
+    async def approve_plan(self, session_id: str):
+        """Approve the latest plan via REST API."""
+        if not self.jules_api_key: return
+        try:
+            name = session_id if "/" in session_id else f"sessions/{session_id}"
+            endpoint = f"{name}:approvePlan"
+            await self._api_request("POST", endpoint)
+            logger.info(f"Plan approved for session {session_id}")
+        except Exception as e:
+            logger.error(f"Failed to approve plan: {e}")
 
     async def archive_session(self, session_id: str):
         """
-        Jules CLI doesn't explicitly list an archive command in the help.
-        We might need to check if 'logout' or some other command handles cleanup,
-        or if it's not supported yet.
+        Since Jules CLI/API (v1alpha) doesn't explicitly have a 'delete' or 'archive' command,
+        we 'close' it by pulling results (if applicable) and marking it as inactive in our local state.
+        In the future, this can be updated with an actual delete/archive API call.
         """
-        logger.warning(f"archive_session {session_id} called but not supported by CLI.")
-        pass
+        logger.info(f"Closing/Archiving session {session_id} (Local state cleanup)")
+        if session_id in self.sessions:
+            self.sessions[session_id].status = "archived"
 
-    async def mind_wipe(self, session_id: str):
-        """Not supported via CLI directly."""
-        pass
-
-    async def hard_scrub(self, session_id: str):
-        """Not supported via CLI directly."""
-        pass
+        # Try a 'remote pull' as a way to finalize/fetch results
+        try:
+            await self._run_command(["jules", "remote", "pull", "--session", session_id])
+        except:
+            pass

@@ -73,6 +73,8 @@ class Orchestrator:
             "google_password": config.get("google_password")
         }
         self.hydra = HydraController(config.get("proxy_url"), credentials=credentials)
+        if config.get("jules_api_key"):
+            self.hydra.jules_api_key = config["jules_api_key"]
         self.verifier = GitHubVerifier(config["github_token"], config["repo_full_name"], config.get("proxy_url"))
         self.scheduler = None
         self.is_running = False
@@ -155,9 +157,13 @@ class Orchestrator:
                         self.scheduler.mark_completed(task_id)
                         # Session is now idle - could be recycled
                 else:
-                    # Check for "confusion" markers in activities (simplified)
+                    # Check detailed activities via API/CLI
                     activities = await self.hydra.get_activities(node.session_id)
-                    # if activities... log or handle
+                    for act in activities:
+                        if act.status == "Done" and node.status != TaskStatus.COMPLETED:
+                            self.log(f"Task {task_id} marked as Done by Jules activities.")
+                            # We still rely on PR verification for final completion,
+                            # but this helps with progress visibility.
 
 class LoginScreen(Screen):
     def compose(self) -> ComposeResult:
@@ -257,6 +263,10 @@ class HydraApp(App):
                                 yield Input(placeholder="Google Email", id="google-email")
                                 yield Input(placeholder="Google Password", id="google-password", password=True)
 
+                            with Horizontal():
+                                yield Input(placeholder="Jules API Key", id="jules-api-key", password=True)
+                                yield Button("Test Jules API", id="test-jules-api-btn", variant="primary")
+
                             yield Label("Jules CLI Management")
                             yield Label("Ensure Jules CLI is installed and authenticated.", variant="dim")
                             with Horizontal():
@@ -309,6 +319,7 @@ class HydraApp(App):
                 with open("config.json", "r") as f:
                     config = json.load(f)
                     self.query_one("#api-key").value = config.get("gemini_api_key", "")
+                    self.query_one("#jules-api-key").value = config.get("jules_api_key", "")
                     self.query_one("#gh-token").value = config.get("github_token", "")
                     self.query_one("#repo-name").value = config.get("repo_full_name", "")
                     self.query_one("#proxy-url").value = config.get("proxy_url", "")
@@ -462,6 +473,7 @@ class HydraApp(App):
     def save_current_config(self):
         config = {
             "gemini_api_key": self.query_one("#api-key").value,
+            "jules_api_key": self.query_one("#jules-api-key").value,
             "github_token": self.query_one("#gh-token").value,
             "repo_full_name": self.query_one("#repo-name").value,
             "proxy_url": self.query_one("#proxy-url").value,
@@ -581,6 +593,28 @@ class HydraApp(App):
             else:
                 self.notify("Proxy connection failed!", severity="error")
                 self.log_to_ui("SOCKS5 proxy validation failed. Check if the proxy server is running and the URL is correct.")
+
+        elif event.button.id == "test-jules-api-btn":
+            self.save_current_config()
+            api_key = self.query_one("#jules-api-key").value
+            proxy_url = self.query_one("#proxy-url").value
+            if not api_key:
+                self.notify("Jules API Key is missing", severity="error")
+                return
+            self.log_to_ui("Testing Jules REST API Key...")
+            from hydra_controller import HydraController
+            ctrl = HydraController(proxy_url=proxy_url)
+            ctrl.jules_api_key = api_key
+            try:
+                sources = await ctrl.list_sources()
+                if sources:
+                    self.notify(f"Jules API Key is valid! Found {len(sources)} sources.")
+                    self.log_to_ui(f"Jules API Key validation successful. Found {len(sources)} sources.")
+                else:
+                    self.notify("Jules API Key is valid, but no sources found.")
+            except Exception as e:
+                self.notify(f"Jules API Key invalid: {e}", severity="error")
+                self.log_to_ui(f"Jules API Key validation failed: {e}")
 
         elif event.button.id == "install-cli-btn":
             self.save_current_config()

@@ -8,6 +8,7 @@ from utils import setup_global_proxy, is_jules_installed, install_jules_cli
 TEST_REPO = "k0inwork/chntpw"
 # Ensure PROXY_URL is set in the environment or passed here
 PROXY_URL = os.getenv("PROXY_URL")
+JULES_API_KEY = os.getenv("JULES_API_KEY")
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_proxy():
@@ -28,9 +29,11 @@ async def test_jules_session_lifecycle():
     Verify the full lifecycle of a Jules session:
     1. Create a session
     2. Track activities/status
-    (Note: This requires authentication to be already completed via 'jules login')
+    3. Send a follow-up message (if API key available)
     """
     controller = HydraController(proxy_url=PROXY_URL)
+    if JULES_API_KEY:
+        controller.jules_api_key = JULES_API_KEY
     await controller.start()
 
     # Create a task
@@ -53,8 +56,15 @@ async def test_jules_session_lifecycle():
 
     assert found_activity, f"No activities found for session {session_id}"
 
-    # Verify session appears in 'remote list'
-    # This is implicitly tested by get_activities in the CLI controller
+    if JULES_API_KEY:
+        print("Testing sendMessage via API...")
+        await controller.send_message(session_id, "Please also check for any obvious bugs.")
+        # Success is logged, we just ensure no crash
+
+    # Test Archive/Close
+    print(f"Testing archive_session for {session_id}...")
+    await controller.archive_session(session_id)
+    assert controller.sessions[session_id].status == "archived"
 
     await controller.stop()
 
