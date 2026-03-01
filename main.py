@@ -124,7 +124,7 @@ class HydraApp(App):
     }
     #left-panel {
         width: 30%;
-        border-right: tall $primary;
+        border-right: solid $primary;
         padding: 1;
     }
     #center-panel {
@@ -149,22 +149,22 @@ class HydraApp(App):
     }
     #task-list {
         height: 1fr;
-        border: sunken $panel;
+        border: solid $accent;
     }
     #fleet-status {
         height: 1fr;
-        border: sunken $panel;
+        border: solid $accent;
     }
     #global-logs {
         height: 15;
-        border-top: tall $primary;
+        border-top: solid $primary;
     }
     .collapsed {
         display: none;
     }
     #bridge-sessions {
         width: 30%;
-        border-right: tall $primary;
+        border-right: solid $primary;
         padding: 1;
     }
     #bridge-controls {
