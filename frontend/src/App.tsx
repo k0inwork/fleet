@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Play, Pause, AlertCircle, CheckCircle, Clock, XCircle, RotateCcw } from 'lucide-react';
+import { Play, AlertCircle, CheckCircle, Clock, XCircle, RotateCcw } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = '/api';
 
 type TaskStatus = 'pending' | 'ready' | 'running' | 'completed' | 'failed' | 'conflicted' | 'waiting' | 'approved' | 'rejected' | 'retry';
 

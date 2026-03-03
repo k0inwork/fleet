@@ -1,9 +1,12 @@
 import asyncio
 import json
 import logging
+import os
 from typing import Dict, List, Optional
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from context_engine import ContextEngine
@@ -210,3 +213,21 @@ async def hil_decision(req: HILDecisionRequest):
         raise HTTPException(status_code=400, detail="Invalid decision.")
 
     return {"status": "success", "task_id": req.task_id, "decision": req.decision}
+
+# Serve React Frontend
+FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "frontend", "dist")
+
+if os.path.isdir(FRONTEND_DIST):
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        # Serve index.html for root and any non-api paths (for react router if added later)
+        # We ensure not to intercept /api routes via order of declaration.
+        if not full_path.startswith("api/"):
+            index_path = os.path.join(FRONTEND_DIST, "index.html")
+            if os.path.exists(index_path):
+                return FileResponse(index_path)
+        raise HTTPException(status_code=404, detail="Not Found")
+else:
+    logger.warning("Frontend dist folder not found. Please run 'npm run build' in the frontend directory.")
