@@ -14,6 +14,10 @@ class TaskStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CONFLICTED = "conflicted"
+    WAITING = "waiting" # Waiting for HIL approval
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    RETRY = "retry"
 
 class TaskNode(BaseModel):
     task: Task
@@ -53,6 +57,28 @@ class DAGScheduler:
     def mark_conflicted(self, task_id: str):
         if task_id in self.nodes:
             self.nodes[task_id].status = TaskStatus.CONFLICTED
+
+    def mark_waiting(self, task_id: str):
+        if task_id in self.nodes:
+            self.nodes[task_id].status = TaskStatus.WAITING
+
+    def mark_approved(self, task_id: str):
+        if task_id in self.nodes:
+            self.nodes[task_id].status = TaskStatus.APPROVED
+            # Typically moves forward to completed
+            self.mark_completed(task_id)
+
+    def mark_rejected(self, task_id: str):
+        if task_id in self.nodes:
+            self.nodes[task_id].status = TaskStatus.REJECTED
+            # Typically behaves like a failure that halts the branch
+            self.mark_failed(task_id)
+
+    def mark_retry(self, task_id: str):
+        if task_id in self.nodes:
+            self.nodes[task_id].status = TaskStatus.RETRY
+            # Go back to ready
+            self.nodes[task_id].status = TaskStatus.READY
 
     def is_finished(self) -> bool:
         return all(node.status in {TaskStatus.COMPLETED, TaskStatus.FAILED} for node in self.nodes.values())

@@ -6,3 +6,7 @@ httpx[socks]
 pydantic
 PySocks
 python-dotenv
+pyyaml
+fastapi
+uvicorn
+pydantic
