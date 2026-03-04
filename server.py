@@ -146,16 +146,11 @@ async def start_workflow(req: StartRequest, background_tasks: BackgroundTasks):
     context_engine = ContextEngine(req.repo_path)
     context = await asyncio.to_thread(context_engine.get_context)
 
-    # Boot HydraController MCP Client and verify connection
+    # Boot HydraController MCP Client
     try:
         await state.hydra.start()
-        is_connected = await state.hydra.verify_connection(req.repo_full_name)
-        if not is_connected:
-            raise HTTPException(status_code=401, detail="Failed to connect to Jules MCP. Verify your Jules API Key and Repository connection.")
     except Exception as he:
-        if isinstance(he, HTTPException):
-            raise he
-        logger.error(f"Failed to boot or verify HydraController: {he}")
+        logger.error(f"Failed to boot HydraController: {he}")
         raise HTTPException(status_code=500, detail=f"Hydra MCP Initialization Error: {he}")
 
     try:

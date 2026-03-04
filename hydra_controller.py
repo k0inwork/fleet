@@ -94,6 +94,19 @@ class HydraController:
             logger.error(f"Connection verification failed: {e}")
             return False
 
+    async def list_all_sessions(self) -> List[Dict]:
+        """Returns a list of recent sessions from the MCP server."""
+        try:
+            res = await self.client.call_tool("list_sessions", {"page_size": 20})
+            if isinstance(res, dict) and "sessions" in res:
+                return res["sessions"]
+            elif isinstance(res, list):
+                return res
+            return []
+        except Exception as e:
+            logger.error(f"Failed to list sessions: {e}")
+            return []
+
     async def _get_source_id(self, repo_full_name: str) -> Optional[str]:
         if not self._sources_cache:
             try:
