@@ -51,6 +51,49 @@ class HydraController:
             finally:
                 self.client = None
 
+    async def verify_connection(self, repo_full_name: str) -> bool:
+        """
+        Spawns a small test session on Jules to verify the API key and connection,
+        and ensures the backend is authorized. Since the MCP server/SDK doesn't
+        expose a 'delete/cancel' method natively, we just send a 'cancel' message
+        or simply rely on it completing extremely fast.
+        """
+        try:
+            logger.info("Verifying Jules connection by spawning a test task...")
+
+            # 1. Fetch source ID
+            source_id = await self._get_source_id(repo_full_name)
+            if not source_id:
+                # Provide a synthetic ID just to try
+                source_id = f"sources/{repo_full_name.replace('/', '_')}"
+
+            # 2. Spawn task
+            session_data = await self.client.call_tool(
+                "create_session",
+                {
+                    "prompt": "This is a connection verification test. Please acknowledge and immediately exit without making changes.",
+                    "source": source_id,
+                    "starting_branch": "main",
+                    "require_plan_approval": False
+                }
+            )
+
+            session_id = session_data.get("name")
+            if not session_id:
+                logger.error("Failed to parse session ID from test spawn.")
+                return False
+
+            logger.info(f"Test task {session_id} spawned successfully. Connection verified!")
+
+            # 3. We cannot delete it via MCP natively, but we can send a cancel message
+            # to forcefully complete it if it's lingering.
+            await self.send_message(session_id, "Cancel task.")
+
+            return True
+        except Exception as e:
+            logger.error(f"Connection verification failed: {e}")
+            return False
+
     async def _get_source_id(self, repo_full_name: str) -> Optional[str]:
         if not self._sources_cache:
             try:

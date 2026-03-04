@@ -1,0 +1,99 @@
+/app/brain.py:5: FutureWarning:
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+INFO:     Started server process [45094]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+/app/server.py:135: PydanticDeprecatedSince20: The `dict` method is deprecated; use `model_dump` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+  state.config = req.dict()
+/app/github_verifier.py:25: DeprecationWarning: Argument login_or_token is deprecated, please use auth=github.Auth.Token(...) instead
+  self.gh = Github(auth=None, base_url="https://api.github.com", login_or_token=token)
+INFO:HydraController:Starting Jules MCP Client...
+INFO:HydraController:Verifying Jules connection by spawning a test task...
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+INFO:jules_agent_sdk.base:Initialized Jules API client (base_url=https://jules.googleapis.com/v1alpha)
+ERROR:jules_agent_sdk.base:API error: 401 - API keys are not supported by this API. Expected OAuth2 access token or other authentication credentials that assert a principal. See https://cloud.google.com/docs/authentication
+[03/04/26 22:27:38] Error calling tool 'get_all_sources'
+                    ╭─────────── Traceback (most recent call last) ────────────╮
+                    │ /home/jules/.pyenv/versions/3.13.0/lib/python3.13/site-p │
+                    │ ackages/fastmcp/server/server.py:987 in call_tool        │
+                    │                                                          │
+                    │ /home/jules/.pyenv/versions/3.13.0/lib/python3.13/site-p │
+                    │ ackages/fastmcp/tools/tool.py:354 in _run                │
+                    │                                                          │
+                    │                 ... 10 frames hidden ...                 │
+                    │                                                          │
+                    │ /home/jules/.pyenv/versions/3.13.0/lib/python3.13/site-p │
+                    │ ackages/jules_agent_sdk/base.py:253 in _request          │
+                    │                                                          │
+                    │   250 │   │   │   │   # Handle errors                    │
+                    │   251 │   │   │   │   if not response.ok:                │
+                    │   252 │   │   │   │   │   try:                           │
+                    │ ❱ 253 │   │   │   │   │   │   self._handle_error(respons │
+                    │   254 │   │   │   │   │   except JulesAPIError as e:     │
+                    │   255 │   │   │   │   │   │   self.error_count += 1      │
+                    │   256 │   │   │   │   │   │   if self._should_retry(e, a │
+                    │                                                          │
+                    │ /home/jules/.pyenv/versions/3.13.0/lib/python3.13/site-p │
+                    │ ackages/jules_agent_sdk/base.py:194 in _handle_error     │
+                    │                                                          │
+                    │   191 │   │                                              │
+                    │   192 │   │   # Raise appropriate exception              │
+                    │   193 │   │   if response.status_code == 401:            │
+                    │ ❱ 194 │   │   │   raise JulesAuthenticationError(error_m │
+                    │   195 │   │   elif response.status_code == 404:          │
+                    │   196 │   │   │   raise JulesNotFoundError(error_msg, re │
+                    │   197 │   │   elif response.status_code == 400:          │
+                    ╰──────────────────────────────────────────────────────────╯
+                    JulesAuthenticationError: API keys are not supported by this
+                    API. Expected OAuth2 access token or other authentication
+                    credentials that assert a principal. See
+                    https://cloud.google.com/docs/authentication
+ERROR:HydraController:Failed to fetch sources: Error calling tool 'get_all_sources': API keys are not supported by this API. Expected OAuth2 access token or other authentication credentials that assert a principal. See https://cloud.google.com/docs/authentication
+INFO:mcp.server.lowlevel.server:Processing request of type CallToolRequest
+ERROR:jules_agent_sdk.base:API error: 401 - API keys are not supported by this API. Expected OAuth2 access token or other authentication credentials that assert a principal. See https://cloud.google.com/docs/authentication
+                    Error calling tool 'create_session'
+                    ╭─────────── Traceback (most recent call last) ────────────╮
+                    │ /home/jules/.pyenv/versions/3.13.0/lib/python3.13/site-p │
+                    │ ackages/fastmcp/server/server.py:987 in call_tool        │
+                    │                                                          │
+                    │ /home/jules/.pyenv/versions/3.13.0/lib/python3.13/site-p │
+                    │ ackages/fastmcp/tools/tool.py:354 in _run                │
+                    │                                                          │
+                    │                 ... 9 frames hidden ...                  │
+                    │                                                          │
+                    │ /home/jules/.pyenv/versions/3.13.0/lib/python3.13/site-p │
+                    │ ackages/jules_agent_sdk/base.py:253 in _request          │
+                    │                                                          │
+                    │   250 │   │   │   │   # Handle errors                    │
+                    │   251 │   │   │   │   if not response.ok:                │
+                    │   252 │   │   │   │   │   try:                           │
+                    │ ❱ 253 │   │   │   │   │   │   self._handle_error(respons │
+                    │   254 │   │   │   │   │   except JulesAPIError as e:     │
+                    │   255 │   │   │   │   │   │   self.error_count += 1      │
+                    │   256 │   │   │   │   │   │   if self._should_retry(e, a │
+                    │                                                          │
+                    │ /home/jules/.pyenv/versions/3.13.0/lib/python3.13/site-p │
+                    │ ackages/jules_agent_sdk/base.py:194 in _handle_error     │
+                    │                                                          │
+                    │   191 │   │                                              │
+                    │   192 │   │   # Raise appropriate exception              │
+                    │   193 │   │   if response.status_code == 401:            │
+                    │ ❱ 194 │   │   │   raise JulesAuthenticationError(error_m │
+                    │   195 │   │   elif response.status_code == 404:          │
+                    │   196 │   │   │   raise JulesNotFoundError(error_msg, re │
+                    │   197 │   │   elif response.status_code == 400:          │
+                    ╰──────────────────────────────────────────────────────────╯
+                    JulesAuthenticationError: API keys are not supported by this
+                    API. Expected OAuth2 access token or other authentication
+                    credentials that assert a principal. See
+                    https://cloud.google.com/docs/authentication
+ERROR:HydraController:Connection verification failed: Error calling tool 'create_session': API keys are not supported by this API. Expected OAuth2 access token or other authentication credentials that assert a principal. See https://cloud.google.com/docs/authentication
+INFO:     127.0.0.1:37554 - "POST /api/start HTTP/1.1" 401 Unauthorized
