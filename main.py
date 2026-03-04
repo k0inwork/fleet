@@ -40,12 +40,14 @@ from typing import Dict, List, Optional
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Header, Footer, Static, Log, Label, Input, Button, TabbedContent, TabPane, TextArea, Tree
+from textual.widgets import Header, Footer, Static, Log, Label, Input, Button, TabbedContent, TabPane, TextArea, Tree, OptionList
 from textual.reactive import reactive
 
 from context_engine import ContextEngine
 from scheduler import DAGScheduler, TaskStatus
 from utils import setup_global_proxy, check_proxy
+from brain import NodeType
+from agents_parser import AgentsManifest
 
 class Orchestrator:
     def __init__(self, config: dict, log_callback):
@@ -57,6 +59,7 @@ class Orchestrator:
         self.log = log_callback
         self.context_engine = ContextEngine(config.get("repo_path", "."))
         self.brain = Brain(config["gemini_api_key"])
+        self.agents_manifest = AgentsManifest(config.get("repo_path", "."))
 
         # If manual session state is provided, write it to state.json
         if config.get("session_state"):
@@ -127,7 +130,25 @@ class Orchestrator:
 
     async def dispatch_task(self, task_id: str):
         task_node = self.scheduler.nodes[task_id]
-        self.log(f"Dispatching task {task_id} to Hydra...")
+
+        # 1. HIL/APPROVAL Node
+        if task_node.task.node_type == NodeType.APPROVAL:
+            self.log(f"Task {task_id} requires Human-in-the-Loop Approval. Waiting for HIL interaction.")
+            self.scheduler.mark_waiting(task_id)
+            return
+
+        # 2. Check Fallbacks via agents.md
+        fallback = self.agents_manifest.get_fallback(task_node.task.instruction)
+        if fallback == "github_actions":
+            self.log(f"Task {task_id} exceeds VM capabilities. Falling back to GitHub Actions...")
+            # Trigger Mock GitHub Actions
+            self.scheduler.mark_running(task_id, "GH_ACTION_MOCK")
+            await asyncio.sleep(2) # Mock execution time
+            self.log(f"GitHub Action completed for {task_id}.")
+            self.scheduler.mark_completed(task_id)
+            return
+
+        self.log(f"Dispatching task {task_id} to Hydra VM...")
 
         try:
             # Create or Reuse Session
@@ -144,6 +165,9 @@ class Orchestrator:
     async def verify_active_tasks(self):
         for task_id, node in self.scheduler.nodes.items():
             if node.status == TaskStatus.RUNNING:
+                if node.session_id == "GH_ACTION_MOCK":
+                    continue # Skip PR check for mock actions
+
                 submitted, conflicted = await asyncio.to_thread(self.verifier.verify_pr, node.task.branch)
                 if submitted:
                     if conflicted:

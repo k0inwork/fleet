@@ -6,3 +6,14 @@ httpx[socks]
 pydantic
 PySocks
 python-dotenv
+pyyaml
+fastapi
+uvicorn
+pydantic
+git+https://github.com/CodeAgentBridge/jules-mcp-server
+fastmcp
+jules-agent-sdk
+PySocks
+PyGithub
+playwright
+google-generativeai

@@ -5,8 +5,17 @@ from pydantic import BaseModel, Field
 import google.generativeai as genai
 from context_engine import CodebaseContext
 
+from enum import Enum
+
+class NodeType(str, Enum):
+    TASK = "TASK"
+    LLM_ORCHESTRATOR = "LLM_ORCHESTRATOR"
+    DECISION = "DECISION"
+    APPROVAL = "APPROVAL"
+
 class Task(BaseModel):
     id: str
+    node_type: NodeType = NodeType.TASK
     branch: str
     instruction: str
     dependencies: List[str] = Field(default_factory=list)
@@ -43,6 +52,7 @@ Output a JSON object that strictly follows this schema:
   "tasks": [
     {{
       "id": "task_id",
+      "node_type": "TASK",
       "branch": "branch_name",
       "instruction": "Detailed technical instruction for Jules. include context about the files to modify.",
       "dependencies": ["list_of_dependency_ids"]
