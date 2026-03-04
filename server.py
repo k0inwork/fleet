@@ -47,6 +47,7 @@ class StartRequest(BaseModel):
     user_goal: str
     gemini_api_key: str
     github_token: str
+    jules_api_key: Optional[str] = None
     repo_full_name: str
     repo_path: str = "."
     proxy_url: Optional[str] = None
@@ -134,7 +135,11 @@ async def start_workflow(req: StartRequest, background_tasks: BackgroundTasks):
     state.config = req.dict()
     state.brain = Brain(req.gemini_api_key)
     state.agents_manifest = AgentsManifest(req.repo_path)
-    state.hydra = HydraController(req.proxy_url)
+
+    # Pass jules API key to HydraController for MCP
+    credentials = {"jules_api_key": req.jules_api_key or req.gemini_api_key}
+    state.hydra = HydraController(proxy_url=req.proxy_url, credentials=credentials)
+
     state.verifier = GitHubVerifier(req.github_token, req.repo_full_name, req.proxy_url)
 
     # Init context and graph

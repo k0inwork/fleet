@@ -28,6 +28,7 @@ export default function App() {
   // Configuration Form State
   const [userGoal, setUserGoal] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [julesApiKey, setJulesApiKey] = useState('');
   const [ghToken, setGhToken] = useState('');
   const [repoName, setRepoName] = useState('');
 
@@ -99,6 +100,7 @@ export default function App() {
         body: JSON.stringify({
           user_goal: userGoal,
           gemini_api_key: apiKey,
+          jules_api_key: julesApiKey || apiKey,
           github_token: ghToken,
           repo_full_name: repoName,
           repo_path: '.'
@@ -180,6 +182,16 @@ export default function App() {
                 />
               </div>
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Jules API Key (optional)</label>
+                <input
+                  type="password"
+                  placeholder="Defaults to Gemini key"
+                  className="w-full border-gray-300 rounded-md shadow-sm p-2 border"
+                  value={julesApiKey}
+                  onChange={e => setJulesApiKey(e.target.value)}
+                />
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">GitHub Token</label>
                 <input
                   type="password"
@@ -188,7 +200,7 @@ export default function App() {
                   onChange={e => setGhToken(e.target.value)}
                 />
               </div>
-              <div className="col-span-2">
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Repository Name (owner/repo)</label>
                 <input
                   type="text"
