@@ -33,7 +33,7 @@ describe('JulesClient', () => {
       'https://jules.googleapis.com/v1alpha/sources?pageSize=10',
       expect.objectContaining({
         headers: {
-          'x-goog-api-key': API_KEY,
+          'Authorization': `Bearer ${API_KEY}`,
           'Content-Type': 'application/json',
         }
       })
