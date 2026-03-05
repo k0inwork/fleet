@@ -7,7 +7,7 @@ describe('JulesClient', () => {
 
   beforeEach(() => {
     // Reset fetch mock between tests
-    globalThis.fetch = vi.fn() as any;
+    globalThis.fetch = vi.fn() as unknown as typeof fetch;
     client = new JulesClient(API_KEY, { timeoutMs: 1000, maxRetries: 0 }); // Fast fail for tests
   });
 
@@ -33,7 +33,7 @@ describe('JulesClient', () => {
       'https://jules.googleapis.com/v1alpha/sources?pageSize=10',
       expect.objectContaining({
         headers: {
-          'Authorization': `Bearer ${API_KEY}`,
+          'x-goog-api-key': API_KEY,
           'Content-Type': 'application/json',
         }
       })

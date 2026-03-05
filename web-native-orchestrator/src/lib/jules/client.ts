@@ -86,7 +86,7 @@ export class JulesClient {
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
     const headers = {
-      'Authorization': `Bearer ${this.apiKey}`,
+      'x-goog-api-key': this.apiKey,
       'Content-Type': 'application/json',
       ...options.headers,
     };
