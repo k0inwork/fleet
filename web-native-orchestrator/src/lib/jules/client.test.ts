@@ -7,7 +7,7 @@ describe('JulesClient', () => {
 
   beforeEach(() => {
     // Reset fetch mock between tests
-    global.fetch = vi.fn();
+    globalThis.fetch = vi.fn() as any;
     client = new JulesClient(API_KEY, { timeoutMs: 1000, maxRetries: 0 }); // Fast fail for tests
   });
 
@@ -22,18 +22,18 @@ describe('JulesClient', () => {
       nextPageToken: 'token123'
     };
 
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
       json: async () => mockResponse,
     });
 
     const result = await client.listSources(10);
 
-    expect(global.fetch).toHaveBeenCalledWith(
+    expect(globalThis.fetch).toHaveBeenCalledWith(
       'https://jules.googleapis.com/v1alpha/sources?pageSize=10',
       expect.objectContaining({
         headers: {
-          'X-Goog-Api-Key': API_KEY,
+          'Authorization': `Bearer ${API_KEY}`,
           'Content-Type': 'application/json',
         }
       })
@@ -52,15 +52,15 @@ describe('JulesClient', () => {
       statusText: 'Bad Request',
       text: async () => '{"error": "invalid prompt"}',
     };
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockResponse);
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(mockResponse);
 
     try {
       await client.createSession({ source: 'repo', prompt: 'test' });
       // Should not reach here
       expect(true).toBe(false);
-    } catch (error: any) {
+    } catch (error) {
       expect(error).toBeInstanceOf(JulesAPIError);
-      expect(error.message).toContain('Jules API error: Bad Request');
+      expect((error as JulesAPIError).message).toContain('Jules API error: Bad Request');
     }
   });
 
@@ -73,7 +73,7 @@ describe('JulesClient', () => {
       updateTime: '2023-01-01'
     };
 
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
       json: async () => mockSession,
     });
@@ -83,7 +83,7 @@ describe('JulesClient', () => {
       prompt: 'Do something'
     });
 
-    expect(global.fetch).toHaveBeenCalledWith(
+    expect(globalThis.fetch).toHaveBeenCalledWith(
       'https://jules.googleapis.com/v1alpha/sessions',
       expect.objectContaining({
         method: 'POST',
@@ -98,7 +98,7 @@ describe('JulesClient', () => {
       activities: [{ name: 'act/1', type: 'THINKING', content: 'Hmm...' }]
     };
 
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
       json: async () => mockActivities,
     });
@@ -112,7 +112,7 @@ describe('JulesClient', () => {
     client = new JulesClient(API_KEY, { timeoutMs: 1000, maxRetries: 2 });
 
     // First call fails with 500
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: false,
       status: 500,
       statusText: 'Internal Server Error',
@@ -120,14 +120,14 @@ describe('JulesClient', () => {
     });
 
     // Second call succeeds
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
       json: async () => ({ name: 'sessions/123' }),
     });
 
     const result = await client.getSession('sessions/123');
 
-    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     expect(result.name).toBe('sessions/123');
   });
 });
